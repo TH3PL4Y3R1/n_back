@@ -31,7 +31,7 @@ N_BLOCKS = 2
 TRIALS_PER_BLOCK = 120
 
 # Practice
-PRACTICE_TRIALS = 20
+PRACTICE_TRIALS = 20  # default; can be overridden via --practice-trials
 PRACTICE_TARGET_RATE = 0.25
 PRACTICE_HAS_LURES = False
 # Practice passing criterion (fraction correct)
@@ -419,7 +419,7 @@ def show_consent(win: visual.Window) -> None:
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win)
+            graceful_quit(None, None, [], win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -441,7 +441,7 @@ def show_instructions(win: visual.Window, n_back: int) -> None:
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win)
+            graceful_quit(None, None, [], win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -455,7 +455,7 @@ def show_practice_headsup(win: visual.Window) -> None:
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win)
+            graceful_quit(None, None, [], win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -472,7 +472,7 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win)
+            graceful_quit(None, None, [], win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -485,8 +485,22 @@ def show_thanks(win: visual.Window) -> None:
     core.wait(1.5)
 
 
-def run_practice(win: visual.Window, n_back: int) -> Tuple[float, Optional[float]]:
-    plans = generate_sequence(n_back, PRACTICE_TRIALS, target_rate=PRACTICE_TARGET_RATE,
+def show_save_and_exit_prompt(win: visual.Window) -> None:
+    """Final screen: require ENTER/RETURN to save and exit; ESC is ignored here."""
+    msg = "Task complete.\n\nPress ENTER/RETURN to save and exit."
+    stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
+    stim.draw()
+    win.flip()
+    event.clearEvents()
+    # Only accept ENTER here; ignore ESC
+    while True:
+        keys = event.waitKeys(keyList=[KEY_PROCEED])
+        if KEY_PROCEED in keys:
+            break
+
+
+def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple[float, Optional[float]]:
+    plans = generate_sequence(n_back, practice_trials, target_rate=PRACTICE_TARGET_RATE,
                               include_lures=PRACTICE_HAS_LURES)
     accs: List[int] = []
     rts: List[float] = []
@@ -511,7 +525,7 @@ def run_practice(win: visual.Window, n_back: int) -> Tuple[float, Optional[float
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win)
+            graceful_quit(None, None, [], win, abort=True)
         if KEY_PROCEED in keys:
             break
     return acc, mean_rt
@@ -532,7 +546,7 @@ def show_task_headsup(win: visual.Window, n_back: int) -> None:
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win)
+            graceful_quit(None, None, [], win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -606,7 +620,7 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
             if keys and not got_response:
                 for k, t in keys:
                     if k == KEY_QUIT:
-                        graceful_quit(None, None, rows_out if rows_out is not None else [], win)
+                        graceful_quit(None, None, rows_out if rows_out is not None else [], win, abort=True)
                     if k:
                         got_response = True
                         resp_key = k
@@ -674,21 +688,36 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
 CURRENT_PARTICIPANT = ""
 SESSION_TS = ""
 CSV_PATH = ""
+ABORT_WITHOUT_SAVE = False
 
 
-def graceful_quit(writer: Optional[csv.DictWriter], f: Optional[object], rows: List[Dict], win: Optional[visual.Window]) -> None:
-    # Write any accumulated rows
-    try:
-        if writer is not None and f is not None and rows:
-            writer.writerows(rows)
-            f.flush()
-    except Exception:
-        pass
+def graceful_quit(writer: Optional[csv.DictWriter], f: Optional[object], rows: List[Dict], win: Optional[visual.Window], abort: bool = False) -> None:
+    """Exit the task. If abort is True (e.g., ESC pressed), don't save and delete any CSV file."""
+    global ABORT_WITHOUT_SAVE
+    ABORT_WITHOUT_SAVE = ABORT_WITHOUT_SAVE or abort
+
+    # Only save when not aborting
+    if not ABORT_WITHOUT_SAVE:
+        try:
+            if writer is not None and f is not None and rows:
+                writer.writerows(rows)
+                f.flush()
+        except Exception:
+            pass
+    # Close file handle if present
     try:
         if f is not None:
             f.close()
     except Exception:
         pass
+    # If aborting, remove CSV file if it exists
+    if ABORT_WITHOUT_SAVE and CSV_PATH:
+        try:
+            if os.path.exists(CSV_PATH):
+                os.remove(CSV_PATH)
+        except Exception:
+            pass
+    # Close window
     try:
         if win is not None:
             win.close()
@@ -710,6 +739,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--blocks", type=int, default=N_BLOCKS, help="Number of blocks")
     parser.add_argument("--trials", type=int, default=TRIALS_PER_BLOCK, help="Trials per block")
     parser.add_argument("--no-practice", action="store_true", help="Skip practice")
+    parser.add_argument("--practice-trials", type=int, default=PRACTICE_TRIALS, help="Number of practice trials")
     args = parser.parse_args(argv)
 
     n_back = max(1, min(3, int(args.n_back)))
@@ -747,9 +777,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     overall_rts: List[float] = []
 
     # Practice loop with pass/fail
-    if not args.no_practice and PRACTICE_TRIALS > 0:
+    practice_trials = max(1, int(args.practice_trials))
+    if not args.no_practice and practice_trials > 0:
         while True:
-            acc, _ = run_practice(win, n_back)
+            acc, _ = run_practice(win, n_back, practice_trials)
             if acc >= PRACTICE_PASS_ACC:
                 break
             # If failed, re-show very brief reminder before repeating
@@ -782,8 +813,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Finish
     show_thanks(win)
+    # Require explicit save/exit confirmation (ENTER) and avoid ESC here
+    show_save_and_exit_prompt(win)
 
-    # Final flush
+    # Final flush and close
     try:
         if all_rows:
             writer.writerows(all_rows)
