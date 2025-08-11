@@ -97,6 +97,45 @@ def validate_sequence(seq: List[str], is_target_flags: List[int], lure_types: Li
     return True, "ok"
 
 
+def _sample_target_indices(n_back: int, n_trials: int, desired: int, max_consec_targets: int, *, attempts: int = 200) -> Optional[List[int]]:
+    """Randomly choose target indices >= n_back satisfying:
+    - No more than max_consec_targets consecutive targets
+    - No N-back chaining: i and i-n_back cannot both be targets (breaks repeating N-back cycles)
+    Returns sorted indices or None on failure.
+    """
+    if desired <= 0:
+        return []
+    positions = list(range(n_back, n_trials))
+    for _ in range(attempts):
+        random.shuffle(positions)
+        chosen: List[int] = []
+        for i in positions:
+            if len(chosen) >= desired:
+                break
+            # Consecutive target constraint
+            if max_consec_targets <= 0:
+                allow = False
+            else:
+                if max_consec_targets == 1 and chosen and i - chosen[-1] == 1:
+                    continue
+                # General case: ensure last run length would not exceed max
+                if chosen:
+                    run = 1
+                    j = len(chosen) - 1
+                    while j >= 0 and chosen[j] == (i - (len(chosen) - j)):
+                        run += 1
+                        j -= 1
+                    if run > max_consec_targets:
+                        continue
+            # Break chains: do not select i if (i - n_back) already a target
+            if (i - n_back) in chosen:
+                continue
+            chosen.append(i)
+        if len(chosen) == desired:
+            return sorted(chosen)
+    return None
+
+
 def generate_sequence(n_back: int, n_trials: int, *,
                       target_rate: float = TARGET_RATE,
                       lure_n_minus_1_rate: float = LURE_N_MINUS_1_RATE,
@@ -115,65 +154,66 @@ def generate_sequence(n_back: int, n_trials: int, *,
         is_target_flags: List[int] = []
         lure_types: List[str] = []
         freqs: Dict[str, int] = {c: 0 for c in LETTERS}
-        targets_placed = 0
-        consec_target_run = 0
+
+        target_indices = _sample_target_indices(n_back, n_trials, desired_targets, max_consec_targets)
+        if target_indices is None:
+            continue
+        target_set = set(target_indices)
 
         for i in range(n_trials):
             iti_ms = random.randint(iti_range_ms[0], iti_range_ms[1])
-            planned_type = "non-target"
             planned_lure_type = "none"
-
-            can_be_target = (i >= n_back and consec_target_run < max_consec_targets) and (targets_placed < desired_targets + tolerance)
-            if can_be_target and i >= n_back and targets_placed < desired_targets + tolerance:
-                target_letter = seq[i - n_back]
-                if _valid_run_limit(seq, target_letter, max_identical_run):
-                    planned_type = "target"
-
-            if planned_type != "target" and include_lures:
-                can_n_minus_1 = (i >= n_back - 1) and (n_back - 1) > 0 and random.random() < lure_n_minus_1_rate
-                if can_n_minus_1:
-                    letter_nm1 = seq[i - (n_back - 1)] if (n_back - 1) > 0 else None
-                    letter_n = seq[i - n_back] if i >= n_back else None
-                    if letter_nm1 and (letter_n is None or letter_nm1 != letter_n) and _valid_run_limit(seq, letter_nm1, max_identical_run):
-                        planned_type = "lure"
-                        planned_lure_type = "n-1"
-
-                if planned_type == "non-target":
-                    can_n_plus_1 = (i >= n_back + 1) and random.random() < lure_n_plus_1_rate
-                    if can_n_plus_1:
+            # Target placement by pre-sampled indices
+            if i in target_set and i >= n_back:
+                # Letter must match n-back
+                if i >= n_back:
+                    letter = seq[i - n_back]
+                else:
+                    # Should not happen as indices start at n_back
+                    letter = _choose_letter(LETTERS, freqs, soft_balance=soft_balance_initial)
+                is_target_flags.append(1)
+                lure_types.append("none")
+            else:
+                # Optionally place a lure on non-target trials
+                if include_lures:
+                    # n-1 lure
+                    if (n_back - 1) > 0 and i >= (n_back - 1) and random.random() < lure_n_minus_1_rate:
+                        letter_nm1 = seq[i - (n_back - 1)]
+                        letter_n = seq[i - n_back] if i >= n_back else None
+                        if letter_nm1 and (letter_n is None or letter_nm1 != letter_n) and _valid_run_limit(seq, letter_nm1, max_identical_run):
+                            planned_lure_type = "n-1"
+                            letter = letter_nm1
+                        else:
+                            planned_lure_type = "none"
+                    # n+1 lure
+                    if planned_lure_type == "none" and i >= (n_back + 1) and random.random() < lure_n_plus_1_rate:
                         letter_np1 = seq[i - (n_back + 1)]
                         letter_n = seq[i - n_back] if i >= n_back else None
-                        if (letter_np1 is not None) and (letter_n is None or letter_np1 != letter_n) and _valid_run_limit(seq, letter_np1, max_identical_run):
-                            planned_type = "lure"
+                        if letter_np1 and (letter_n is None or letter_np1 != letter_n) and _valid_run_limit(seq, letter_np1, max_identical_run):
                             planned_lure_type = "n+1"
+                            letter = letter_np1
+                        else:
+                            planned_lure_type = "none"
+                # If still none, choose a regular non-target letter
+                if planned_lure_type == "none":
+                    candidates = [c for c in LETTERS]
+                    if i >= n_back:
+                        avoid = seq[i - n_back]
+                        candidates = [c for c in candidates if c != avoid]
+                    if seq:
+                        last = seq[-1]
+                        if last in candidates and not _valid_run_limit(seq, last, max_identical_run - 1):
+                            candidates = [c for c in candidates if c != last]
+                    letter = _choose_letter(candidates, freqs, soft_balance=soft_balance_initial)
+                is_target_flags.append(0)
+                lure_types.append(planned_lure_type)
 
-            if planned_type == "target":
-                letter = seq[i - n_back]
-            elif planned_type == "lure" and planned_lure_type == "n-1":
-                letter = seq[i - (n_back - 1)]
-                if i >= n_back and letter == seq[i - n_back]:
-                    planned_type = "non-target"
-                    planned_lure_type = "none"
-            elif planned_type == "lure" and planned_lure_type == "n+1":
-                letter = seq[i - (n_back + 1)]
-                if i >= n_back and letter == seq[i - n_back]:
-                    planned_type = "non-target"
-                    planned_lure_type = "none"
-            else:
-                candidates = [c for c in LETTERS]
-                if i >= n_back:
-                    avoid = seq[i - n_back]
-                    candidates = [c for c in candidates if c != avoid]
-                if seq:
-                    last = seq[-1]
-                    if last in candidates and not _valid_run_limit(seq, last, max_identical_run - 1):
-                        candidates = [c for c in candidates if c != last]
-                letter = _choose_letter(candidates, freqs, soft_balance=soft_balance_initial)
-
+            # Final run-limit check adjustment
             if not _valid_run_limit(seq, letter, max_identical_run):
+                # Pick a different non-conflicting letter
                 cands = [c for c in LETTERS if _valid_run_limit(seq, c, max_identical_run)]
                 if i >= n_back:
-                    cands = [c for c in cands if c != seq[i - n_back]]
+                    cands = [c for c in cands if c != (seq[i - n_back] if i >= n_back else None)]
                 if seq:
                     last = seq[-1]
                     if last in cands and not _valid_run_limit(seq, last, max_identical_run - 1):
@@ -182,19 +222,6 @@ def generate_sequence(n_back: int, n_trials: int, *,
 
             seq.append(letter)
             freqs[letter] = freqs.get(letter, 0) + 1
-
-            if planned_type == "target" and i >= n_back and letter == seq[i - n_back]:
-                is_target_flags.append(1)
-                consec_target_run += 1
-                targets_placed += 1
-                lure_types.append("none")
-            else:
-                is_target_flags.append(0)
-                consec_target_run = 0
-                if planned_lure_type.startswith("n-") or planned_lure_type.startswith("n+"):
-                    lure_types.append(planned_lure_type)
-                else:
-                    lure_types.append("none")
 
         ok, _reason = validate_sequence(
             seq, is_target_flags, lure_types,
