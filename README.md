@@ -2,6 +2,15 @@
 
 This folder contains a self-contained Python virtual environment and a complete N-back task built with PsychoPy.
 
+## Requirements
+
+- Operating systems: Linux, macOS, or Windows.
+- Python: 3.10.x (required by PsychoPy).
+- PsychoPy: 2025.1.1 (pinned in requirements.txt).
+- Optional for markers (installed by default here):
+  - pylsl (for LSL markers)
+  - pyserial (for serial trigger devices)
+
 ## Setup
 
 - Create/refresh the virtual environment (optional if `.venv` already exists):
@@ -9,16 +18,24 @@ This folder contains a self-contained Python virtual environment and a complete 
     - python3 -m venv .venv
     - .venv/bin/python -m pip install -U pip setuptools wheel
     - .venv/bin/python -m pip install -r requirements.txt
+  - Windows (PowerShell):
+    - py -3.10 -m venv .venv
+    - .venv\Scripts\python -m pip install -U pip setuptools wheel
+    - .venv\Scripts\python -m pip install -r requirements.txt
 
 ## Activate
 
 - Bash/Zsh:
   - source .venv/bin/activate
+  
+- Windows (PowerShell):
+  - .venv\Scripts\Activate.ps1
 
 ## Quick verify
 
 - Ensure you’re on Python 3.10.x:
-  - .venv/bin/python -V
+  - Linux/macOS: `.venv/bin/python -V`
+  - Windows: `.venv\Scripts\python -V`
 - Verify PsychoPy import:
   - python check_psychopy.py
 
@@ -62,6 +79,9 @@ python nback_task.py --participant test --practice-trials 10
 
 - Call sites are active but `send_marker` is a no-op by default.
 - To enable markers, open `nback_task.py`, set `ENABLE_MARKERS = True`, and follow one commented integration example (LSL / Serial / Parallel). Only enable one.
+  - LSL: pylsl is pre-listed in requirements; ensure your receiver is running.
+  - Serial: adjust serial port name (e.g., `COM3` on Windows or `/dev/ttyUSB0` on Linux).
+  - Parallel: ensure your system supports a parallel port and set the correct address.
 
 ## Notes
 

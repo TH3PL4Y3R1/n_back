@@ -1,1 +1,5 @@
 psychopy==2025.1.1
+
+# Optional marker integrations (safe to install by default)
+pylsl>=1.16.2
+pyserial>=3.5
