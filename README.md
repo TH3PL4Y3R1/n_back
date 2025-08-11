@@ -122,6 +122,26 @@ Diagnostics:
 - Run `python scripts/timing_diagnostics.py --fullscr` to measure frame intervals on a given machine and flag long frames.
  - Optional: `python scripts/local_sequence_check.py` to quickly validate sequence constraints without opening a window.
 
+## Sequence preview/debugging
+
+To quickly preview the generated N-back sequence, targets, and lures for a given configuration (without running the full experiment), use:
+
+```bash
+PYTHONPATH=. python scripts/preview_seq.py [n_back] [n_trials] [seed]
+```
+
+Examples:
+
+Preview a 2-back sequence of 10 trials:
+```bash
+PYTHONPATH=. python scripts/preview_seq.py 2 10
+```
+
+Preview a 3-back sequence of 20 trials with a fixed seed:
+```bash
+PYTHONPATH=. python scripts/preview_seq.py 3 20 1234
+```
+
 ### Examples
 
 - Custom ITI and reproducible sequence with 2-back, 1 block of 40 trials:
