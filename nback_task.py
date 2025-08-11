@@ -22,6 +22,25 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
 from psychopy import core, visual, event, gui
+from nback.markers import (
+    ENABLE_MARKERS,
+    MARK_CONSENT_SHOWN,
+    MARK_BLOCK_START,
+    MARK_FIXATION_ONSET,
+    MARK_STIM_TARGET,
+    MARK_STIM_NONTARGET,
+    MARK_STIM_LURE_N_MINUS_1,
+    MARK_STIM_LURE_N_PLUS_1,
+    MARK_RESPONSE_REGISTERED,
+    MARK_BLOCK_END,
+    MARK_THANK_YOU,
+    send_marker,
+)
+from nback.sequences import (
+    TrialPlan,
+    generate_sequence,
+    validate_sequence,  # keep import for parity; not used directly outside
+)
 
 # =========================
 # Parameters (defaults)
@@ -72,21 +91,7 @@ KEY_PROCEED = "return"
 KEY_RESPONSE = "space"
 KEY_QUIT = "escape"
 
-# Markers / Triggers
-ENABLE_MARKERS = False  # set to True and configure one of the commented examples below
-
-# Marker codes
-MARK_CONSENT_SHOWN = 10
-MARK_BLOCK_START = 20
-MARK_FIXATION_ONSET = 30
-# Stimulus onset codes differentiated by trial type
-MARK_STIM_TARGET = 41
-MARK_STIM_NONTARGET = 42
-MARK_STIM_LURE_N_MINUS_1 = 43
-MARK_STIM_LURE_N_PLUS_1 = 44
-MARK_RESPONSE_REGISTERED = 50
-MARK_BLOCK_END = 70
-MARK_THANK_YOU = 90
+"""Markers are imported from nback.markers."""
 
 # Paths
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -117,328 +122,26 @@ def safe_filename(name: str) -> str:
 
 
 # =========================
-# Marker plumbing
-# =========================
-
-# You can enable markers by setting ENABLE_MARKERS = True and implementing one of the
-# commented examples below. By default, send_marker is a no-op.
-
-# --- LSL EXAMPLE (COMMENTED OUT) ---
-# _lsl_outlet = None
-# def _get_lsl_outlet():
-#     global _lsl_outlet
-#     if _lsl_outlet is None:
-#         from pylsl import StreamInfo, StreamOutlet
-#         info = StreamInfo(name='Markers', type='Markers', channel_count=1,
-#                           nominal_srate=0, channel_format='int32', source_id='nback-markers')
-#         _lsl_outlet = StreamOutlet(info)
-#     return _lsl_outlet
-
-# --- SERIAL EXAMPLE (COMMENTED OUT) ---
-# _serial_port = None
-# def _get_serial_port():
-#     global _serial_port
-#     if _serial_port is None:
-#         import serial
-#         _serial_port = serial.Serial('/dev/ttyUSB0', 115200, timeout=0)
-#     return _serial_port
-
-# --- PARALLEL EXAMPLE (COMMENTED OUT) ---
-# _parallel_port = None
-# def _get_parallel_port():
-#     global _parallel_port
-#     if _parallel_port is None:
-#         from psychopy import parallel
-#         _parallel_port = parallel.ParallelPort(address=0x0378)
-#     return _parallel_port
-
-
-def send_marker(code: int, info: Optional[dict] = None) -> None:
-    """Send a marker if ENABLE_MARKERS is True; otherwise no-op.
-
-    info is an optional dictionary of context (block_idx, n_back, etc.).
-    """
-    if not ENABLE_MARKERS:
-        return
-
-    # Choose exactly one integration method and uncomment that block.
-
-    # --- LSL send (COMMENTED OUT) ---
-    # outlet = _get_lsl_outlet()
-    # outlet.push_sample([int(code)])
-
-    # --- Serial send (COMMENTED OUT) ---
-    # ser = _get_serial_port()
-    # ser.write(bytes([int(code) & 0xFF]))
-
-    # --- Parallel port send (COMMENTED OUT) ---
-    # p = _get_parallel_port()
-    # p.setData(int(code) & 0xFF)
-    # core.wait(0.005)
-    # p.setData(0)
+"""Marker plumbing now lives in nback/markers.py; send_marker is imported."""
 
 
 # =========================
 # Sequence generation
 # =========================
 
-@dataclass
-class TrialPlan:
-    stimulus: str
-    is_target: int  # 0/1
-    lure_type: str  # 'none' | 'n-1' | 'n+1'
-    iti_ms: int
+"""TrialPlan dataclass is imported from nback.sequences."""
 
 
-def _choose_letter(candidates: List[str], freq: Dict[str, int], soft_balance: bool = True) -> str:
-    if not candidates:
-        # Fallback to full set if constraints over-restrict
-        candidates = LETTERS[:]
-    if soft_balance:
-        # Inverse frequency weighting
-        max_count = max(freq.values()) if freq else 1
-        weights = []
-        for c in candidates:
-            w = (max_count - freq.get(c, 0) + 1)
-            weights.append(max(w, 1))
-        total = float(sum(weights))
-        probs = [w / total for w in weights]
-        r = random.random()
-        acc = 0.0
-        for c, p in zip(candidates, probs):
-            acc += p
-            if r <= acc:
-                return c
-        return candidates[-1]
-    return random.choice(candidates)
+# Sequence helpers are imported from nback.sequences
 
 
-def _valid_run_limit(seq: List[str], candidate: str, max_run: int) -> bool:
-    if max_run <= 0:
-        return True
-    run_len = 1
-    i = len(seq) - 1
-    while i >= 0 and seq[i] == candidate:
-        run_len += 1
-        i -= 1
-    return run_len <= max_run
+# ...existing code...
 
 
-def validate_sequence(seq: List[str], is_target_flags: List[int], lure_types: List[str], *,
-                      n_back: int, target_rate: float, tolerance: int,
-                      max_consec_targets: int) -> Tuple[bool, str]:
-    n_trials = len(seq)
-    # a) No targets in first N trials
-    if any(is_target_flags[i] == 1 for i in range(0, min(n_back, n_trials))):
-        return False, "Target in first N trials"
-    # b) Target count within ±1 trial
-    desired_targets = round(target_rate * n_trials)
-    total_targets = sum(is_target_flags)
-    if not (desired_targets - 1 <= total_targets <= desired_targets + 1):
-        return False, f"Target count {total_targets} outside ±1 around {desired_targets}"
-    # c) No unintended immediate repeats for N>1 unless target/lure
-    if n_back > 1:
-        for i in range(1, n_trials):
-            if seq[i] == seq[i - 1] and is_target_flags[i] == 0 and lure_types[i] == "none":
-                return False, "Immediate repeat without target/lure"
-    # d) Lure correctness and no double-counting
-    for i in range(n_trials):
-        lt = lure_types[i]
-        if lt == "n-1":
-            if not (i >= n_back - 1 and (n_back - 1) > 0):
-                return False, "n-1 lure too early"
-            if is_target_flags[i] == 1:
-                return False, "lure double-counted as target"
-            if seq[i] != seq[i - (n_back - 1)]:
-                return False, "n-1 lure mismatch"
-            if i >= n_back and seq[i] == seq[i - n_back]:
-                return False, "n-1 lure equals target"
-        elif lt == "n+1":
-            if not (i >= n_back + 1):
-                return False, "n+1 lure too early"
-            if is_target_flags[i] == 1:
-                return False, "lure double-counted as target"
-            if seq[i] != seq[i - (n_back + 1)]:
-                return False, "n+1 lure mismatch"
-            if i >= n_back and seq[i] == seq[i - n_back]:
-                return False, "n+1 lure equals target"
-    # Max consecutive targets
-    consec = 0
-    for f in is_target_flags:
-        if f == 1:
-            consec += 1
-            if consec > max_consec_targets:
-                return False, f">{max_consec_targets} consecutive targets"
-        else:
-            consec = 0
-    return True, "ok"
+# Validation is imported from nback.sequences
 
 
-def generate_sequence(n_back: int, n_trials: int, *,
-                      target_rate: float = TARGET_RATE,
-                      lure_n_minus_1_rate: float = LURE_N_MINUS_1_RATE,
-                      lure_n_plus_1_rate: float = LURE_N_PLUS_1_RATE,
-                      max_consec_targets: int = MAX_CONSEC_TARGETS_DEFAULT,
-                      max_identical_run: int = MAX_IDENTICAL_RUN,
-                      iti_range_ms: Tuple[int, int] = ITI_JITTER_RANGE_MS,
-                      max_attempts: int = MAX_ATTEMPTS,
-                      soft_balance_initial: bool = True,
-                      include_lures: bool = True) -> List[TrialPlan]:
-    """Generate a constrained n-back sequence returning per-trial plans.
-
-    Enforces:
-    - No targets in first N trials
-    - Approx target rate with ±1 trial tolerance
-    - Max consecutive targets
-    - Lures (n-1 and n+1) by independent probabilities, never double-counted as targets
-    - Avoid accidental immediate repeats for N>1 unless target/lure
-    - Cap identical-letter runs
-    - Soft balance letter frequency
-    """
-    tolerance = 1
-    desired_targets = round(target_rate * n_trials)
-
-    for attempt in range(1, max_attempts + 1):
-        seq: List[str] = []
-        is_target_flags: List[int] = []
-        lure_types: List[str] = []
-        freqs: Dict[str, int] = {c: 0 for c in LETTERS}
-        targets_placed = 0
-        consec_target_run = 0
-
-        for i in range(n_trials):
-            # Decide planned ITI now
-            iti_ms = random.randint(iti_range_ms[0], iti_range_ms[1])
-
-            # Decide trial type priority: target > lures > non-target
-            planned_type = "non-target"
-            planned_lure_type = "none"
-
-            # Target decision (don't allow in first N)
-            can_be_target = (i >= n_back and consec_target_run < max_consec_targets) and (targets_placed < desired_targets + tolerance)
-            if can_be_target and i >= n_back and targets_placed < desired_targets + tolerance:
-                # Also avoid violating max_identical_run if choosing target
-                target_letter = seq[i - n_back]
-                if _valid_run_limit(seq, target_letter, max_identical_run):
-                    planned_type = "target"
-
-            # Lure decisions if not target
-            if planned_type != "target" and include_lures:
-                # n-1 lure
-                can_n_minus_1 = (i >= n_back - 1) and (n_back - 1) > 0 and random.random() < lure_n_minus_1_rate
-                if can_n_minus_1:
-                    letter_nm1 = seq[i - (n_back - 1)] if (n_back - 1) > 0 else None
-                    letter_n = seq[i - n_back] if i >= n_back else None
-                    if letter_nm1 and (letter_n is None or letter_nm1 != letter_n) and _valid_run_limit(seq, letter_nm1, max_identical_run):
-                        planned_type = "lure"
-                        planned_lure_type = "n-1"
-
-                # n+1 lure
-                if planned_type == "non-target":
-                    can_n_plus_1 = (i >= n_back + 1) and random.random() < lure_n_plus_1_rate
-                    if can_n_plus_1:
-                        letter_np1 = seq[i - (n_back + 1)]
-                        letter_n = seq[i - n_back] if i >= n_back else None
-                        if (letter_np1 is not None) and (letter_n is None or letter_np1 != letter_n) and _valid_run_limit(seq, letter_np1, max_identical_run):
-                            planned_type = "lure"
-                            planned_lure_type = "n+1"
-
-            # Construct candidate set and choose letter
-            if planned_type == "target":
-                letter = seq[i - n_back]
-            elif planned_type == "lure" and planned_lure_type == "n-1":
-                letter = seq[i - (n_back - 1)]
-                # Ensure not accidentally target
-                if i >= n_back and letter == seq[i - n_back]:
-                    planned_type = "non-target"
-                    planned_lure_type = "none"
-            elif planned_type == "lure" and planned_lure_type == "n+1":
-                letter = seq[i - (n_back + 1)]
-                if i >= n_back and letter == seq[i - n_back]:
-                    planned_type = "non-target"
-                    planned_lure_type = "none"
-            else:
-                # Non-target selection: must not create accidental target when N>1
-                candidates = [c for c in LETTERS]
-                if i >= n_back:
-                    avoid = seq[i - n_back]
-                    candidates = [c for c in candidates if c != avoid]
-                # Avoid immediate repeats unless needed for target/lure
-                if seq:
-                    last = seq[-1]
-                    if last in candidates and not _valid_run_limit(seq, last, max_identical_run - 1):
-                        candidates = [c for c in candidates if c != last]
-                letter = _choose_letter(candidates, freqs, soft_balance=soft_balance_initial)
-
-            # Final guard against run limit violations
-            if not _valid_run_limit(seq, letter, max_identical_run):
-                # fallback pick
-                cands = [c for c in LETTERS if _valid_run_limit(seq, c, max_identical_run)]
-                if i >= n_back:
-                    cands = [c for c in cands if c != seq[i - n_back]]
-                if seq:
-                    last = seq[-1]
-                    if last in cands and not _valid_run_limit(seq, last, max_identical_run - 1):
-                        cands = [c for c in cands if c != last]
-                letter = _choose_letter(cands, freqs, soft_balance=soft_balance_initial)
-
-            # Apply and update flags
-            seq.append(letter)
-            freqs[letter] = freqs.get(letter, 0) + 1
-
-            if planned_type == "target" and i >= n_back and letter == seq[i - n_back]:
-                is_target_flags.append(1)
-                consec_target_run += 1
-                targets_placed += 1
-                lure_types.append("none")
-            else:
-                is_target_flags.append(0)
-                consec_target_run = 0
-                # Verify lure validity; ensure no double counting as target
-                if planned_lure_type.startswith("n-") or planned_lure_type.startswith("n+"):
-                    lure_types.append(planned_lure_type)
-                else:
-                    lure_types.append("none")
-
-        # Validate with helper
-        ok, reason = validate_sequence(
-            seq, is_target_flags, lure_types,
-            n_back=n_back,
-            target_rate=target_rate,
-            tolerance=tolerance,
-            max_consec_targets=max_consec_targets,
-        )
-        if not ok:
-            if attempt <= 3:
-                print(f"[generator] attempt {attempt} failed: {reason}")
-            continue
-
-        # Success: build TrialPlan list
-        plans: List[TrialPlan] = []
-        for i in range(n_trials):
-            iti_ms = random.randint(iti_range_ms[0], iti_range_ms[1])
-            plans.append(TrialPlan(
-                stimulus=seq[i],
-                is_target=is_target_flags[i],
-                lure_type=lure_types[i],
-                iti_ms=iti_ms,
-            ))
-        return plans
-
-    # If reached here, relax soft constraints and try a last time
-    return generate_sequence(
-        n_back,
-        n_trials,
-        target_rate=target_rate,
-        lure_n_minus_1_rate=lure_n_minus_1_rate,
-        lure_n_plus_1_rate=lure_n_plus_1_rate,
-        max_consec_targets=max_consec_targets,
-        max_identical_run=max_identical_run,
-        iti_range_ms=iti_range_ms,
-        max_attempts=1,
-        soft_balance_initial=False,
-        include_lures=include_lures,
-    )
+"""Sequence generation moved to nback.sequences.generate_sequence."""
 
 
 # =========================
@@ -481,16 +184,28 @@ def show_consent(win: visual.Window, text_stim: Optional[visual.TextStim] = None
             break
 
 
+INSTR_WELCOME_FILE = os.path.join(os.path.dirname(__file__), "instructions_welcome.txt")
+INSTR_PRACTICE_FILE = os.path.join(os.path.dirname(__file__), "instructions_practice_headsup.txt")
+INSTR_TASK_FILE = os.path.join(os.path.dirname(__file__), "instructions_task_headsup.txt")
+INSTR_BREAK_FILE = os.path.join(os.path.dirname(__file__), "instructions_break.txt")
+INSTR_THANKS_FILE = os.path.join(os.path.dirname(__file__), "instructions_thanks.txt")
+INSTR_SAVE_EXIT_FILE = os.path.join(os.path.dirname(__file__), "instructions_save_and_exit.txt")
+INSTR_PRACTICE_PASS_FILE = os.path.join(os.path.dirname(__file__), "instructions_practice_feedback_pass.txt")
+INSTR_PRACTICE_FAIL_FILE = os.path.join(os.path.dirname(__file__), "instructions_practice_feedback_fail.txt")
+
+
+def _load_text(path: str, fallback: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            txt = f.read().strip()
+            return txt if txt else fallback
+    except Exception:
+        return fallback
+
+
 def show_instructions(win: visual.Window, n_back: int) -> None:
-    lines = [
-        f"Welcome to the {n_back}-back task.",
-        "You will see a stream of letters.",
-        f"Press SPACE when the current letter matches the one from {n_back} trial(s) before.",
-        "If it doesn't match, do not press any key.",
-        "Respond as quickly and accurately as possible.",
-        "Press ENTER/RETURN to begin practice.",
-    ]
-    txt = "\n\n".join(lines)
+    base = _load_text(INSTR_WELCOME_FILE, f"Welcome to the {n_back}-back task.\nPress ENTER/RETURN to begin practice.")
+    txt = base.replace("{{N}}", str(n_back)) + "\n\n(Press ENTER/RETURN to continue)"
     stim = visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
     stim.draw()
     win.flip()
@@ -504,7 +219,7 @@ def show_instructions(win: visual.Window, n_back: int) -> None:
 
 
 def show_practice_headsup(win: visual.Window) -> None:
-    msg = "Practice is about to begin.\nTry to reach the accuracy criterion to proceed.\n\nPress ENTER/RETURN to start."
+    msg = _load_text(INSTR_PRACTICE_FILE, "Practice is about to begin. Try to reach the accuracy criterion to proceed.") + "\n\n(Press ENTER/RETURN to start)"
     stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
     stim.draw()
     win.flip()
@@ -518,11 +233,12 @@ def show_practice_headsup(win: visual.Window) -> None:
 
 
 def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional[float]) -> None:
-    msg = f"End of block {block_idx}.\nAccuracy: {acc*100:.1f}%\n"
+    template = _load_text(INSTR_BREAK_FILE, "End of block {{BLOCK}}. Accuracy: {{ACC}}%\n")
+    body = template.replace("{{BLOCK}}", str(block_idx)).replace("{{ACC}}", f"{acc*100:.1f}")
     if mean_rt is not None:
-        msg += f"Mean RT (correct): {mean_rt:.0f} ms\n"
-    msg += "\nPress ENTER/RETURN to continue."
-    stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
+        body += f"Mean RT (correct): {mean_rt:.0f} ms\n"
+    body += "\nPress ENTER/RETURN to continue."
+    stim = visual.TextStim(win, text=body, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
     stim.draw()
     win.flip()
     event.clearEvents()
@@ -535,7 +251,8 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
 
 
 def show_thanks(win: visual.Window) -> None:
-    stim = visual.TextStim(win, text="Thank you!", color=TEXT_COLOR, font=FONT, height=0.08)
+    text = _load_text(INSTR_THANKS_FILE, "Thank you!")
+    stim = visual.TextStim(win, text=text, color=TEXT_COLOR, font=FONT, height=0.08)
     stim.draw()
     win.flip()
     send_marker(MARK_THANK_YOU, {"event": "thank_you"})
@@ -544,7 +261,7 @@ def show_thanks(win: visual.Window) -> None:
 
 def show_save_and_exit_prompt(win: visual.Window) -> None:
     """Final screen: require ENTER/RETURN to save and exit; ESC is ignored here."""
-    msg = "Task complete.\n\nPress ENTER/RETURN to save and exit."
+    msg = _load_text(INSTR_SAVE_EXIT_FILE, "Task complete. Press ENTER/RETURN to save and exit.")
     stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
     stim.draw()
     win.flip()
@@ -576,13 +293,13 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
 
     # Feedback
     passed = acc >= PRACTICE_PASS_ACC
-    msg = f"Practice complete.\nAccuracy: {acc*100:.1f}% (criterion: {PRACTICE_PASS_ACC*100:.0f}%)\n"
-    if mean_rt is not None:
-        msg += f"Mean RT (correct): {mean_rt:.0f} ms\n"
     if passed:
-        msg += "\nYou passed the criterion. Press ENTER/RETURN to continue."
+        template = _load_text(INSTR_PRACTICE_PASS_FILE, "Practice complete. Accuracy: {{ACC}}% (criterion: {{CRIT}}%).\nYou passed the criterion. Press ENTER/RETURN to continue.")
     else:
-        msg += "\nYou did not reach the criterion. Press ENTER/RETURN to repeat practice."
+        template = _load_text(INSTR_PRACTICE_FAIL_FILE, "Practice complete. Accuracy: {{ACC}}% (criterion: {{CRIT}}%).\nYou did not reach the criterion. Press ENTER/RETURN to repeat practice.")
+    msg = template.replace("{{ACC}}", f"{acc*100:.1f}").replace("{{CRIT}}", f"{PRACTICE_PASS_ACC*100:.0f}")
+    if mean_rt is not None:
+        msg += f"\nMean RT (correct): {mean_rt:.0f} ms"
     stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
     stim.draw()
     win.flip()
@@ -597,13 +314,8 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
 
 
 def show_task_headsup(win: visual.Window, n_back: int) -> None:
-    lines = [
-        "Main task is about to begin.",
-        f"Remember: Press SPACE when the letter matches the one from {n_back} trial(s) ago.",
-        "Try to be both fast and accurate.",
-        "\nPress ENTER/RETURN to start the task.",
-    ]
-    txt = "\n\n".join(lines)
+    base = _load_text(INSTR_TASK_FILE, "Main task is about to begin. Press ENTER/RETURN to start the task.")
+    txt = base.replace("{{N}}", str(n_back)) + "\n\n(Press ENTER/RETURN to start the task)"
     stim = visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
     stim.draw()
     win.flip()
