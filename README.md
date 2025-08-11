@@ -1,6 +1,6 @@
 # N-back (PsychoPy)
 
-This folder contains a self-contained Python virtual environment and a complete N-back task built with PsychoPy.
+This folder contains a complete N-back task built with PsychoPy. Use a local virtual environment for isolation.
 
 ## Requirements
 
@@ -56,20 +56,20 @@ python nback_task.py --participant test --n-back 2 --blocks 1 --trials 40 --no-p
 ```
 
 Control number of practice trials (training trials):
+
+```bash
+python nback_task.py --participant test --practice-trials 10
+```
+
 Run in windowed mode for debugging (lower timing stability):
 
 ```bash
 python nback_task.py --participant test --windowed
 ```
 
-
-```bash
-python nback_task.py --participant test --practice-trials 10
-```
-
 ## Consent text
 
-The consent screen reads from `informed_consent.txt` placed next to `nback_task.py`. Edit that file to update the consent language without changing the code.
+The consent screen reads from `texts/informed_consent.txt`. Edit that file to update the consent language without changing the code.
 
 ## Command-line arguments
 
@@ -79,6 +79,7 @@ The consent screen reads from `informed_consent.txt` placed next to `nback_task.
 - `--trials` (int): Trials per block in the main task. Default: `120`.
 - `--no-practice` (flag): Skip the practice phase. Default: practice runs.
 - `--practice-trials` (int): Number of practice trials when practice is enabled. Default: `20`.
+- `--windowed` (flag): Run windowed for debugging. Default is fullscreen (recommended for timing).
 
 Advanced controls:
 - `--iti-min` (int): Minimum ITI jitter in ms. Default: 500.
@@ -93,12 +94,12 @@ Advanced controls:
 
 - Written to `./data/nback_{participant}_{YYYYMMDD_HHMMSS}.csv`.
 - Columns: `participant_id, session_timestamp, block_idx, trial_idx, n_back, stimulus, is_target, lure_type, iti_ms, stim_onset_time, response_key, rt_ms, correct, marker_code_stim, marker_code_resp`.
-- Sidecar metadata JSON is also written next to the CSV (same stem with `.meta.json`) and documents generator settings, ITI range, and the seed.
+- Sidecar metadata JSON is also written next to the CSV (same stem with `.meta.json`) and documents generator settings, ITI range, the seed, detected display refresh (`display_refresh_hz`), and whether the window was fullscreen (`window_fullscreen`).
 
 ## Markers / Triggers (optional)
 
 - Call sites are active but `send_marker` is a no-op by default.
-- To enable markers, open `nback_task.py`, set `ENABLE_MARKERS = True`, and follow one commented integration example (LSL / Serial / Parallel). Only enable one.
+- To enable markers, open `nback/markers.py`, set `ENABLE_MARKERS = True`, and follow one commented integration example (LSL / Serial / Parallel). Only enable one.
   - LSL: pylsl is pre-listed in requirements; ensure your receiver is running.
   - Serial: adjust serial port name (e.g., `COM3` on Windows or `/dev/ttyUSB0` on Linux).
   - Parallel: ensure your system supports a parallel port and set the correct address.
@@ -119,6 +120,7 @@ Advanced controls:
 
 Diagnostics:
 - Run `python scripts/timing_diagnostics.py --fullscr` to measure frame intervals on a given machine and flag long frames.
+ - Optional: `python scripts/local_sequence_check.py` to quickly validate sequence constraints without opening a window.
 
 ### Examples
 
