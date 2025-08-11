@@ -5,7 +5,7 @@ This folder contains a self-contained Python virtual environment and a complete 
 ## Setup
 
 - Create/refresh the virtual environment (optional if `.venv` already exists):
-  - Python 3.10+ recommended. On Linux, run:
+  - Python 3.10.x is required for PsychoPy (tested on 3.10). On Linux, run:
     - python3 -m venv .venv
     - .venv/bin/python -m pip install -U pip setuptools wheel
     - .venv/bin/python -m pip install -r requirements.txt
@@ -17,7 +17,10 @@ This folder contains a self-contained Python virtual environment and a complete 
 
 ## Quick verify
 
-- python check_psychopy.py
+- Ensure you’re on Python 3.10.x:
+  - .venv/bin/python -V
+- Verify PsychoPy import:
+  - python check_psychopy.py
 
 You should see a PsychoPy version printed.
 
