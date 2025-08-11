@@ -43,7 +43,7 @@ You should see a PsychoPy version printed.
 
 ## Run the task
 
-Basic run (defaults to 2-back, 2 blocks x 120 trials, with practice):
+Basic run (defaults to 2-back, 2 blocks x 120 trials, with practice). The task now defaults to fullscreen for stable timing, detects display refresh at startup, and reports it in the console and metadata:
 
 ```bash
 python nback_task.py --participant test
@@ -56,6 +56,12 @@ python nback_task.py --participant test --n-back 2 --blocks 1 --trials 40 --no-p
 ```
 
 Control number of practice trials (training trials):
+Run in windowed mode for debugging (lower timing stability):
+
+```bash
+python nback_task.py --participant test --windowed
+```
+
 
 ```bash
 python nback_task.py --participant test --practice-trials 10
@@ -102,6 +108,17 @@ Advanced controls:
 - The `.gitignore` prevents committing the `.venv/` directory.
 - Update versions in `requirements.txt` when needed.
 - See `DATA_DICTIONARY.md` for detailed field descriptions.
+
+## Timing
+
+- Defaults to fullscreen for stable flip timing. Use `--windowed` for debugging only.
+- Detects display refresh at startup and logs it to console and metadata (`display_refresh_hz`).
+- Stimulus RT clock is aligned to the exact flip that presents the stimulus.
+- Fixation and ITI are frame-synced using per-frame flips rather than coarse sleeps.
+- Uses the hardware keyboard path when available for low-latency key events; falls back safely when not.
+
+Diagnostics:
+- Run `python scripts/timing_diagnostics.py --fullscr` to measure frame intervals on a given machine and flag long frames.
 
 ### Examples
 

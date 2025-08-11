@@ -1,3 +1,38 @@
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local run data outputs
+data/*.csv
+data/*.meta.json
+data/*.tsv
+logs/
+
+# PsychoPy user files (if generated locally)
+psychopy.cfg
+userPrefs.cfg
 # Python caches
 __pycache__/
 *.pyc

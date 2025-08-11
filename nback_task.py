@@ -22,6 +22,11 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
 from psychopy import core, visual, event, gui
+try:
+    from psychopy.hardware import keyboard as hw_keyboard
+    _HAVE_HW_KB = True
+except Exception:
+    _HAVE_HW_KB = False
 from nback.markers import (
     ENABLE_MARKERS,
     MARK_CONSENT_SHOWN,
@@ -39,7 +44,6 @@ from nback.markers import (
 from nback.sequences import (
     TrialPlan,
     generate_sequence,
-    validate_sequence,  # keep import for parity; not used directly outside
 )
 
 # =========================
@@ -104,6 +108,10 @@ CFG_LURE_NM1 = LURE_N_MINUS_1_RATE
 CFG_LURE_NP1 = LURE_N_PLUS_1_RATE
 CFG_MAX_CONSEC_TARGETS = MAX_CONSEC_TARGETS_DEFAULT
 CFG_ITI_RANGE_MS = ITI_JITTER_RANGE_MS
+
+# Pre-created stimuli (initialized after window creation)
+STIM_LETTER: Optional[visual.TextStim] = None
+STIM_FIXATION: Optional[visual.TextStim] = None
 
 
 # =========================
@@ -329,14 +337,36 @@ def show_task_headsup(win: visual.Window, n_back: int) -> None:
             break
 
 
+def _ensure_stims(win: visual.Window) -> None:
+    global STIM_LETTER, STIM_FIXATION
+    if STIM_LETTER is None:
+        STIM_LETTER = visual.TextStim(win, text="", color=TEXT_COLOR, font=FONT, height=FONT_HEIGHT)
+    if STIM_FIXATION is None:
+        STIM_FIXATION = visual.TextStim(win, text="+", color=TEXT_COLOR, font=FONT, height=FIXATION_HEIGHT)
+
+
 def _draw_fixation(win: visual.Window) -> None:
-    fix = visual.TextStim(win, text="+", color=TEXT_COLOR, font=FONT, height=FIXATION_HEIGHT)
-    fix.draw()
+    _ensure_stims(win)
+    assert STIM_FIXATION is not None
+    STIM_FIXATION.draw()
 
 
 def _draw_stimulus(win: visual.Window, letter: str) -> None:
-    stim = visual.TextStim(win, text=letter, color=TEXT_COLOR, font=FONT, height=FONT_HEIGHT)
-    stim.draw()
+    _ensure_stims(win)
+    assert STIM_LETTER is not None
+    STIM_LETTER.text = letter
+    STIM_LETTER.draw()
+
+
+def _flip_for_ms(win: visual.Window, duration_ms: int, draw_fn=None) -> None:
+    """Flip each frame for duration_ms, optionally drawing via draw_fn before each flip."""
+    clk = core.Clock(); clk.reset()
+    while True:
+        if draw_fn is not None:
+            draw_fn()
+        win.flip()
+        if clk.getTime() * 1000.0 >= duration_ms:
+            break
 
 
 def _marker_code_for_stim(is_target: int, lure_type: str) -> int:
@@ -355,21 +385,33 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
     # Start marker
     send_marker(MARK_BLOCK_START, {"event": "block_start", "n_back": n_back, "block_idx": block_idx})
 
-    kb = event  # using legacy event for simplicity and stability
+    # Use hardware keyboard when available for better timing
+    kb = None
+    if _HAVE_HW_KB:
+        try:
+            kb = hw_keyboard.Keyboard(clock=core.Clock())
+        except Exception:
+            kb = None
 
     # Trial loop
     correct_count = 0
     rt_list: List[float] = []
 
     for t_idx, plan in enumerate(plans, start=1):
-        # Fixation
-        _draw_fixation(win)
-        win.flip()
+        # Fixation (frame-synced)
+        def _draw_fix():
+            _draw_fixation(win)
         send_marker(MARK_FIXATION_ONSET, {"event": "fixation_onset", "block_idx": block_idx, "trial_idx": t_idx})
-        core.wait(FIXATION_DUR_MS / 1000.0)
+        _flip_for_ms(win, FIXATION_DUR_MS, draw_fn=_draw_fix)
 
         # Stimulus
         _draw_stimulus(win, plan.stimulus)
+        # Prepare response clock aligned with the stimulus flip
+        resp_clock = core.Clock()
+        win.callOnFlip(resp_clock.reset)
+        if _HAVE_HW_KB and kb is not None:
+            kb.clock = resp_clock
+            kb.clearEvents()
         stim_onset = win.flip()
         stim_marker = _marker_code_for_stim(plan.is_target, plan.lure_type)
         send_marker(stim_marker, {
@@ -382,9 +424,6 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
         })
 
         # Response collection
-        kb.clearEvents()
-        resp_clock = core.Clock()
-        resp_clock.reset()
         got_response = False
         resp_key = None
         rt_ms: Optional[float] = None
@@ -394,23 +433,41 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
             now_ms = resp_clock.getTime() * 1000.0
             if now_ms >= RESP_WINDOW_MS:
                 break
-            keys = kb.getKeys(timeStamped=resp_clock)
-            if keys and not got_response:
-                for k, t in keys:
-                    if k == KEY_QUIT:
+            if _HAVE_HW_KB and kb is not None:
+                keys = kb.getKeys(keyList=[KEY_RESPONSE, KEY_QUIT], waitRelease=False, clear=False)
+                if keys and not got_response:
+                    k = keys[0]
+                    name = k.name
+                    if name == KEY_QUIT:
                         graceful_quit(None, None, rows_out if rows_out is not None else [], win, abort=True)
-                    if k:
-                        got_response = True
-                        resp_key = k
-                        rt_ms = t * 1000.0
-                        send_marker(MARK_RESPONSE_REGISTERED, {
-                            "event": "response_registered",
-                            "block_idx": block_idx,
-                            "trial_idx": t_idx,
-                            "key": k,
-                            "rt_ms": rt_ms,
-                        })
-                        break
+                    got_response = True
+                    resp_key = name
+                    rt_ms = (k.rt or 0.0) * 1000.0
+                    send_marker(MARK_RESPONSE_REGISTERED, {
+                        "event": "response_registered",
+                        "block_idx": block_idx,
+                        "trial_idx": t_idx,
+                        "key": name,
+                        "rt_ms": rt_ms,
+                    })
+            else:
+                keys = event.getKeys(keyList=[KEY_RESPONSE, KEY_QUIT], timeStamped=resp_clock)
+                if keys and not got_response:
+                    for k, t in keys:
+                        if k == KEY_QUIT:
+                            graceful_quit(None, None, rows_out if rows_out is not None else [], win, abort=True)
+                        if k:
+                            got_response = True
+                            resp_key = k
+                            rt_ms = t * 1000.0
+                            send_marker(MARK_RESPONSE_REGISTERED, {
+                                "event": "response_registered",
+                                "block_idx": block_idx,
+                                "trial_idx": t_idx,
+                                "key": k,
+                                "rt_ms": rt_ms,
+                            })
+                            break
             # After STIM_DUR_MS, clear screen but keep collecting
             if now_ms >= STIM_DUR_MS:
                 win.flip()  # blank
@@ -448,8 +505,8 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
             }
             rows_out.append(row)
 
-        # ITI
-        core.wait(plan.iti_ms / 1000.0)
+    # ITI (frame-synced blank)
+    _flip_for_ms(win, plan.iti_ms)
 
     # End marker
     send_marker(MARK_BLOCK_END, {"event": "block_end", "block_idx": block_idx})
@@ -532,6 +589,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--target-rate", type=float, default=TARGET_RATE, help="Target rate (0-1) per block")
     parser.add_argument("--max-consec-targets", type=int, default=MAX_CONSEC_TARGETS_DEFAULT, help="Maximum allowed consecutive targets")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
+    # Default to full-screen; allow windowed mode for debugging
+    parser.add_argument("--windowed", action="store_true", help="Run windowed for debugging (default: fullscreen)")
     args = parser.parse_args(argv)
 
     n_back = max(1, min(3, int(args.n_back)))
@@ -560,7 +619,28 @@ def main(argv: Optional[List[str]] = None) -> int:
     META_PATH = os.path.join(DATA_DIR, f"nback_{CURRENT_PARTICIPANT}_{SESSION_TS}.meta.json")
 
     # Configure window
-    win = visual.Window(size=(1280, 720), color=BACKGROUND_COLOR, units="height", fullscr=False)
+    fullscr = not bool(args.windowed)
+    win = visual.Window(size=(1280, 720), color=BACKGROUND_COLOR, units="height", fullscr=fullscr, allowGUI=False)
+    try:
+        win.mouseVisible = False
+    except Exception:
+        pass
+    # Ensure frame-syncing
+    try:
+        win.waitBlanking = True
+    except Exception:
+        pass
+
+    # Detect and report display refresh rate
+    refresh_hz = None
+    try:
+        refresh_hz = win.getActualFrameRate(nIdentical=20, nMaxFrames=240, nWarmUpFrames=20, threshold=1)
+    except Exception:
+        refresh_hz = None
+    if refresh_hz:
+        print(f"Detected display refresh: {refresh_hz:.3f} Hz (frame ≈ {1000.0/refresh_hz:.2f} ms)")
+    else:
+        print("Warning: Could not detect display refresh rate; proceeding without it.")
 
     # Consent -> Instructions -> Practice heads up
     show_consent(win)
@@ -579,7 +659,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     writer = csv.DictWriter(f, fieldnames=fieldnames)
     writer.writeheader()
 
-    # Write sidecar metadata JSON for reproducibility
+    # Write sidecar metadata JSON for reproducibility (includes display refresh and fullscreen)
     try:
         meta = {
             "participant_id": CURRENT_PARTICIPANT,
@@ -598,6 +678,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "seed": args.seed,
             "letters": LETTERS,
             "psychopy_version": None,
+            "display_refresh_hz": refresh_hz,
+            "window_fullscreen": bool(fullscr),
         }
         try:
             import psychopy
