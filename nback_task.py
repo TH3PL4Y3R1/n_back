@@ -34,6 +34,8 @@ TRIALS_PER_BLOCK = 120
 PRACTICE_TRIALS = 20
 PRACTICE_TARGET_RATE = 0.25
 PRACTICE_HAS_LURES = False
+# Practice passing criterion (fraction correct)
+PRACTICE_PASS_ACC = 0.75
 
 # Stimulus set
 EXCLUDE_CONFUSABLES = True  # Exclude I/O/Q if True
@@ -422,6 +424,42 @@ def show_consent(win: visual.Window) -> None:
             break
 
 
+def show_instructions(win: visual.Window, n_back: int) -> None:
+    lines = [
+        f"Welcome to the {n_back}-back task.",
+        "You will see a stream of letters.",
+        f"Press SPACE when the current letter matches the one from {n_back} trial(s) before.",
+        "If it doesn't match, do not press any key.",
+        "Respond as quickly and accurately as possible.",
+        "Press ENTER/RETURN to begin practice.",
+    ]
+    txt = "\n\n".join(lines)
+    stim = visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
+    stim.draw()
+    win.flip()
+    event.clearEvents()
+    while True:
+        keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
+        if KEY_QUIT in keys:
+            graceful_quit(None, None, [], win)
+        if KEY_PROCEED in keys:
+            break
+
+
+def show_practice_headsup(win: visual.Window) -> None:
+    msg = "Practice is about to begin.\nTry to reach the accuracy criterion to proceed.\n\nPress ENTER/RETURN to start."
+    stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
+    stim.draw()
+    win.flip()
+    event.clearEvents()
+    while True:
+        keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
+        if KEY_QUIT in keys:
+            graceful_quit(None, None, [], win)
+        if KEY_PROCEED in keys:
+            break
+
+
 def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional[float]) -> None:
     msg = f"End of block {block_idx}.\nAccuracy: {acc*100:.1f}%\n"
     if mean_rt is not None:
@@ -458,10 +496,14 @@ def run_practice(win: visual.Window, n_back: int) -> Tuple[float, Optional[float
     mean_rt = (sum(rts) / len(rts)) if rts else None
 
     # Feedback
-    msg = f"Practice done.\nAccuracy: {acc*100:.1f}%\n"
+    passed = acc >= PRACTICE_PASS_ACC
+    msg = f"Practice complete.\nAccuracy: {acc*100:.1f}% (criterion: {PRACTICE_PASS_ACC*100:.0f}%)\n"
     if mean_rt is not None:
         msg += f"Mean RT (correct): {mean_rt:.0f} ms\n"
-    msg += "\nPress ENTER/RETURN to begin the main task."
+    if passed:
+        msg += "\nYou passed the criterion. Press ENTER/RETURN to continue."
+    else:
+        msg += "\nYou did not reach the criterion. Press ENTER/RETURN to repeat practice."
     stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
     stim.draw()
     win.flip()
@@ -473,6 +515,26 @@ def run_practice(win: visual.Window, n_back: int) -> Tuple[float, Optional[float
         if KEY_PROCEED in keys:
             break
     return acc, mean_rt
+
+
+def show_task_headsup(win: visual.Window, n_back: int) -> None:
+    lines = [
+        "Main task is about to begin.",
+        f"Remember: Press SPACE when the letter matches the one from {n_back} trial(s) ago.",
+        "Try to be both fast and accurate.",
+        "\nPress ENTER/RETURN to start the task.",
+    ]
+    txt = "\n\n".join(lines)
+    stim = visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
+    stim.draw()
+    win.flip()
+    event.clearEvents()
+    while True:
+        keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
+        if KEY_QUIT in keys:
+            graceful_quit(None, None, [], win)
+        if KEY_PROCEED in keys:
+            break
 
 
 def _draw_fixation(win: visual.Window) -> None:
@@ -663,8 +725,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Configure window
     win = visual.Window(size=(1280, 720), color=BACKGROUND_COLOR, units="height", fullscr=False)
 
-    # Consent
+    # Consent -> Instructions -> Practice heads up
     show_consent(win)
+    show_instructions(win, n_back)
+    show_practice_headsup(win)
 
     # Prepare CSV
     fieldnames = [
@@ -682,9 +746,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     overall_accs: List[int] = []
     overall_rts: List[float] = []
 
-    # Practice
+    # Practice loop with pass/fail
     if not args.no_practice and PRACTICE_TRIALS > 0:
-        run_practice(win, n_back)
+        while True:
+            acc, _ = run_practice(win, n_back)
+            if acc >= PRACTICE_PASS_ACC:
+                break
+            # If failed, re-show very brief reminder before repeating
+            show_practice_headsup(win)
+
+    # Heads-up before main task
+    show_task_headsup(win, n_back)
 
     # Blocks
     for b in range(1, n_blocks + 1):
