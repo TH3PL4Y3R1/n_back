@@ -61,6 +61,10 @@ Control number of practice trials (training trials):
 python nback_task.py --participant test --practice-trials 10
 ```
 
+## Consent text
+
+The consent screen reads from `informed_consent.txt` placed next to `nback_task.py`. Edit that file to update the consent language without changing the code.
+
 ## Command-line arguments
 
 - `--participant, -p` (str): Participant ID used in the output filename. Default: `anon`.
@@ -70,10 +74,20 @@ python nback_task.py --participant test --practice-trials 10
 - `--no-practice` (flag): Skip the practice phase. Default: practice runs.
 - `--practice-trials` (int): Number of practice trials when practice is enabled. Default: `20`.
 
+Advanced controls:
+- `--iti-min` (int): Minimum ITI jitter in ms. Default: 500.
+- `--iti-max` (int): Maximum ITI jitter in ms. Default: 900.
+- `--lure-nminus1` (float): Probability of n-1 lures per non-target trial. Default: 0.05.
+- `--lure-nplus1` (float): Probability of n+1 lures per non-target trial. Default: 0.05.
+- `--target-rate` (float): Target rate per block (0–1). Default: 0.30.
+- `--max-consec-targets` (int): Maximum allowed consecutive targets. Default: 1.
+- `--seed` (int): Random seed for reproducibility. If provided, a sidecar `.meta.json` is produced capturing parameters.
+
 ## Data output
 
 - Written to `./data/nback_{participant}_{YYYYMMDD_HHMMSS}.csv`.
 - Columns: `participant_id, session_timestamp, block_idx, trial_idx, n_back, stimulus, is_target, lure_type, iti_ms, stim_onset_time, response_key, rt_ms, correct, marker_code_stim, marker_code_resp`.
+- Sidecar metadata JSON is also written next to the CSV (same stem with `.meta.json`) and documents generator settings, ITI range, and the seed.
 
 ## Markers / Triggers (optional)
 
@@ -87,3 +101,11 @@ python nback_task.py --participant test --practice-trials 10
 
 - The `.gitignore` prevents committing the `.venv/` directory.
 - Update versions in `requirements.txt` when needed.
+- See `DATA_DICTIONARY.md` for detailed field descriptions.
+
+### Examples
+
+- Custom ITI and reproducible sequence with 2-back, 1 block of 40 trials:
+  - `python nback_task.py -p demo --n-back 2 --blocks 1 --trials 40 --iti-min 400 --iti-max 1200 --seed 1234`
+- Increase target rate and allow up to 2 consecutive targets:
+  - `python nback_task.py -p demo --target-rate 0.4 --max-consec-targets 2`

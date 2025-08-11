@@ -16,6 +16,7 @@ import csv
 import random
 import string
 import argparse
+import json
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
@@ -47,15 +48,17 @@ if EXCLUDE_CONFUSABLES:
 FIXATION_DUR_MS = 500
 STIM_DUR_MS = 500
 RESP_WINDOW_MS = 1500  # measured from stimulus onset
-ITI_JITTER_RANGE_MS = (500, 900)  # inclusive bounds for uniform jitter
+ITI_JITTER_RANGE_MS = (500, 900)  # inclusive bounds for uniform jitter; CLI can override
 
 # Sequence constraints
 TARGET_RATE = 0.30
-ALLOW_ADJACENT_TARGETS = False
 LURE_N_MINUS_1_RATE = 0.05
 LURE_N_PLUS_1_RATE = 0.05
 MAX_IDENTICAL_RUN = 2  # cap identical-letter runs unless needed for target/lure
 MAX_ATTEMPTS = 300
+
+# Default limit on consecutive targets (can be overridden via CLI)
+MAX_CONSEC_TARGETS_DEFAULT = 1
 
 # Visuals
 BACKGROUND_COLOR = [0.2, 0.2, 0.2]  # gray
@@ -87,6 +90,14 @@ MARK_THANK_YOU = 90
 
 # Paths
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+CONSENT_FILE = os.path.join(os.path.dirname(__file__), "informed_consent.txt")
+
+# Runtime configuration (set from CLI in main())
+CFG_TARGET_RATE = TARGET_RATE
+CFG_LURE_NM1 = LURE_N_MINUS_1_RATE
+CFG_LURE_NP1 = LURE_N_PLUS_1_RATE
+CFG_MAX_CONSEC_TARGETS = MAX_CONSEC_TARGETS_DEFAULT
+CFG_ITI_RANGE_MS = ITI_JITTER_RANGE_MS
 
 
 # =========================
@@ -213,10 +224,61 @@ def _valid_run_limit(seq: List[str], candidate: str, max_run: int) -> bool:
     return run_len <= max_run
 
 
-def generate_sequence(n_back: int, n_trials: int, target_rate: float = TARGET_RATE,
+def validate_sequence(seq: List[str], is_target_flags: List[int], lure_types: List[str], *,
+                      n_back: int, target_rate: float, tolerance: int,
+                      max_consec_targets: int) -> Tuple[bool, str]:
+    n_trials = len(seq)
+    # a) No targets in first N trials
+    if any(is_target_flags[i] == 1 for i in range(0, min(n_back, n_trials))):
+        return False, "Target in first N trials"
+    # b) Target count within ±1 trial
+    desired_targets = round(target_rate * n_trials)
+    total_targets = sum(is_target_flags)
+    if not (desired_targets - 1 <= total_targets <= desired_targets + 1):
+        return False, f"Target count {total_targets} outside ±1 around {desired_targets}"
+    # c) No unintended immediate repeats for N>1 unless target/lure
+    if n_back > 1:
+        for i in range(1, n_trials):
+            if seq[i] == seq[i - 1] and is_target_flags[i] == 0 and lure_types[i] == "none":
+                return False, "Immediate repeat without target/lure"
+    # d) Lure correctness and no double-counting
+    for i in range(n_trials):
+        lt = lure_types[i]
+        if lt == "n-1":
+            if not (i >= n_back - 1 and (n_back - 1) > 0):
+                return False, "n-1 lure too early"
+            if is_target_flags[i] == 1:
+                return False, "lure double-counted as target"
+            if seq[i] != seq[i - (n_back - 1)]:
+                return False, "n-1 lure mismatch"
+            if i >= n_back and seq[i] == seq[i - n_back]:
+                return False, "n-1 lure equals target"
+        elif lt == "n+1":
+            if not (i >= n_back + 1):
+                return False, "n+1 lure too early"
+            if is_target_flags[i] == 1:
+                return False, "lure double-counted as target"
+            if seq[i] != seq[i - (n_back + 1)]:
+                return False, "n+1 lure mismatch"
+            if i >= n_back and seq[i] == seq[i - n_back]:
+                return False, "n+1 lure equals target"
+    # Max consecutive targets
+    consec = 0
+    for f in is_target_flags:
+        if f == 1:
+            consec += 1
+            if consec > max_consec_targets:
+                return False, f">{max_consec_targets} consecutive targets"
+        else:
+            consec = 0
+    return True, "ok"
+
+
+def generate_sequence(n_back: int, n_trials: int, *,
+                      target_rate: float = TARGET_RATE,
                       lure_n_minus_1_rate: float = LURE_N_MINUS_1_RATE,
                       lure_n_plus_1_rate: float = LURE_N_PLUS_1_RATE,
-                      allow_adjacent_targets: bool = ALLOW_ADJACENT_TARGETS,
+                      max_consec_targets: int = MAX_CONSEC_TARGETS_DEFAULT,
                       max_identical_run: int = MAX_IDENTICAL_RUN,
                       iti_range_ms: Tuple[int, int] = ITI_JITTER_RANGE_MS,
                       max_attempts: int = MAX_ATTEMPTS,
@@ -227,14 +289,14 @@ def generate_sequence(n_back: int, n_trials: int, target_rate: float = TARGET_RA
     Enforces:
     - No targets in first N trials
     - Approx target rate with ±1 trial tolerance
-    - Max consecutive targets = 1 unless allowed
+    - Max consecutive targets
     - Lures (n-1 and n+1) by independent probabilities, never double-counted as targets
     - Avoid accidental immediate repeats for N>1 unless target/lure
     - Cap identical-letter runs
     - Soft balance letter frequency
     """
-    desired_targets = round(target_rate * n_trials)
     tolerance = 1
+    desired_targets = round(target_rate * n_trials)
 
     for attempt in range(1, max_attempts + 1):
         seq: List[str] = []
@@ -242,19 +304,18 @@ def generate_sequence(n_back: int, n_trials: int, target_rate: float = TARGET_RA
         lure_types: List[str] = []
         freqs: Dict[str, int] = {c: 0 for c in LETTERS}
         targets_placed = 0
-        last_was_target = False
+        consec_target_run = 0
 
         for i in range(n_trials):
             # Decide planned ITI now
             iti_ms = random.randint(iti_range_ms[0], iti_range_ms[1])
-
-            can_be_target = (i >= n_back and (ALLOW_ADJACENT_TARGETS or not last_was_target)) and (targets_placed < desired_targets + tolerance)
 
             # Decide trial type priority: target > lures > non-target
             planned_type = "non-target"
             planned_lure_type = "none"
 
             # Target decision (don't allow in first N)
+            can_be_target = (i >= n_back and consec_target_run < max_consec_targets) and (targets_placed < desired_targets + tolerance)
             if can_be_target and i >= n_back and targets_placed < desired_targets + tolerance:
                 # Also avoid violating max_identical_run if choosing target
                 target_letter = seq[i - n_back]
@@ -263,7 +324,7 @@ def generate_sequence(n_back: int, n_trials: int, target_rate: float = TARGET_RA
 
             # Lure decisions if not target
             if planned_type != "target" and include_lures:
-                # n-1 lure: current equals i-(n-1), and must not equal i-n (which would be target)
+                # n-1 lure
                 can_n_minus_1 = (i >= n_back - 1) and (n_back - 1) > 0 and random.random() < lure_n_minus_1_rate
                 if can_n_minus_1:
                     letter_nm1 = seq[i - (n_back - 1)] if (n_back - 1) > 0 else None
@@ -272,7 +333,7 @@ def generate_sequence(n_back: int, n_trials: int, target_rate: float = TARGET_RA
                         planned_type = "lure"
                         planned_lure_type = "n-1"
 
-                # n+1 lure: current equals i-(n+1), but must not equal i-n (target)
+                # n+1 lure
                 if planned_type == "non-target":
                     can_n_plus_1 = (i >= n_back + 1) and random.random() < lure_n_plus_1_rate
                     if can_n_plus_1:
@@ -327,63 +388,29 @@ def generate_sequence(n_back: int, n_trials: int, target_rate: float = TARGET_RA
 
             if planned_type == "target" and i >= n_back and letter == seq[i - n_back]:
                 is_target_flags.append(1)
-                last_was_target = True
+                consec_target_run += 1
                 targets_placed += 1
                 lure_types.append("none")
             else:
                 is_target_flags.append(0)
-                last_was_target = False
+                consec_target_run = 0
                 # Verify lure validity; ensure no double counting as target
                 if planned_lure_type.startswith("n-") or planned_lure_type.startswith("n+"):
                     lure_types.append(planned_lure_type)
                 else:
-                    # Re-check if we accidentally made a lure; conservative none
                     lure_types.append("none")
 
-        # Validate constraints
-        # 1) No targets in first N trials
-        if any(is_target_flags[i] == 1 for i in range(0, min(n_back, n_trials))):
-            continue
-        # 2) Target rate tolerance
-        if not (desired_targets - tolerance <= sum(is_target_flags) <= desired_targets + tolerance):
-            continue
-        # 3) Max consecutive targets
-        if not allow_adjacent_targets:
-            consec = 0
-            bad = False
-            for f in is_target_flags:
-                if f == 1:
-                    consec += 1
-                    if consec > 1:
-                        bad = True
-                        break
-                else:
-                    consec = 0
-            if bad:
-                continue
-        # 5) Avoid accidental immediate repeats when N>1 unless target/lure
-        if n_back > 1:
-            bad_repeat = False
-            for i in range(1, n_trials):
-                if seq[i] == seq[i - 1] and is_target_flags[i] == 0 and lure_types[i] == "none":
-                    # allow if it was needed by constraints? We cap by run limit; still avoid here
-                    if MAX_IDENTICAL_RUN <= 1:
-                        bad_repeat = True
-                        break
-            if bad_repeat:
-                continue
-        # 6) Cap identical-letter runs
-        run = 1
-        too_long = False
-        for i in range(1, n_trials):
-            if seq[i] == seq[i - 1]:
-                run += 1
-                if run > max_identical_run and is_target_flags[i] == 0 and lure_types[i] == "none":
-                    too_long = True
-                    break
-            else:
-                run = 1
-        if too_long:
+        # Validate with helper
+        ok, reason = validate_sequence(
+            seq, is_target_flags, lure_types,
+            n_back=n_back,
+            target_rate=target_rate,
+            tolerance=tolerance,
+            max_consec_targets=max_consec_targets,
+        )
+        if not ok:
+            if attempt <= 3:
+                print(f"[generator] attempt {attempt} failed: {reason}")
             continue
 
         # Success: build TrialPlan list
@@ -398,23 +425,53 @@ def generate_sequence(n_back: int, n_trials: int, target_rate: float = TARGET_RA
             ))
         return plans
 
-    # If reached here, relax soft constraints and try a last time deterministically
-    return generate_sequence(n_back, n_trials, target_rate, lure_n_minus_1_rate, lure_n_plus_1_rate,
-                             allow_adjacent_targets, max_identical_run, iti_range_ms, 1,
-                             soft_balance_initial=False, include_lures=include_lures)
+    # If reached here, relax soft constraints and try a last time
+    return generate_sequence(
+        n_back,
+        n_trials,
+        target_rate=target_rate,
+        lure_n_minus_1_rate=lure_n_minus_1_rate,
+        lure_n_plus_1_rate=lure_n_plus_1_rate,
+        max_consec_targets=max_consec_targets,
+        max_identical_run=max_identical_run,
+        iti_range_ms=iti_range_ms,
+        max_attempts=1,
+        soft_balance_initial=False,
+        include_lures=include_lures,
+    )
 
 
 # =========================
 # Rendering / Task flow
 # =========================
 
-def show_consent(win: visual.Window) -> None:
-    txt = "PLACEHOLDER\n\nPress ENTER/RETURN to continue."
-    stim = visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
+def show_consent(win: visual.Window, text_stim: Optional[visual.TextStim] = None, consent_file: Optional[str] = None) -> None:
+    """Show informed consent first.
+    Loads text from informed_consent.txt and appends "(Press ENTER to continue)".
+    ENTER proceeds; ESC quits (no save).
+    The consent marker call is present but commented by default.
+    """
+    # Load consent text from file (UTF-8). Fallback to minimal notice if missing.
+    path = consent_file or CONSENT_FILE
+    consent_text = None
+    try:
+        with open(path, "r", encoding="utf-8") as cf:
+            consent_text = cf.read().strip()
+    except Exception:
+        consent_text = None
+
+    if not consent_text:
+        consent_text = (
+            "Consent text file not found. Please add informed_consent.txt next to nback_task.py."
+        )
+
+    txt = f"{consent_text}\n\n(Press ENTER to continue)"
+    stim = text_stim or visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
+    stim.text = txt
+    stim.pos = (0, 0)
     stim.draw()
     win.flip()
-    send_marker(MARK_CONSENT_SHOWN, {"event": "consent_shown"})
-    # Wait for return
+    # send_marker(MARK_CONSENT_SHOWN)  # 10: consent_shown (commented by default)
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -500,8 +557,16 @@ def show_save_and_exit_prompt(win: visual.Window) -> None:
 
 
 def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple[float, Optional[float]]:
-    plans = generate_sequence(n_back, practice_trials, target_rate=PRACTICE_TARGET_RATE,
-                              include_lures=PRACTICE_HAS_LURES)
+    plans = generate_sequence(
+        n_back,
+        practice_trials,
+        target_rate=PRACTICE_TARGET_RATE,
+        lure_n_minus_1_rate=CFG_LURE_NM1 if PRACTICE_HAS_LURES else 0.0,
+        lure_n_plus_1_rate=CFG_LURE_NP1 if PRACTICE_HAS_LURES else 0.0,
+        max_consec_targets=CFG_MAX_CONSEC_TARGETS,
+        iti_range_ms=CFG_ITI_RANGE_MS,
+        include_lures=PRACTICE_HAS_LURES,
+    )
     accs: List[int] = []
     rts: List[float] = []
     _ = run_block(win, block_idx=0, n_back=n_back, plans=plans, is_practice=True,
@@ -689,6 +754,7 @@ CURRENT_PARTICIPANT = ""
 SESSION_TS = ""
 CSV_PATH = ""
 ABORT_WITHOUT_SAVE = False
+META_PATH = ""
 
 
 def graceful_quit(writer: Optional[csv.DictWriter], f: Optional[object], rows: List[Dict], win: Optional[visual.Window], abort: bool = False) -> None:
@@ -710,11 +776,16 @@ def graceful_quit(writer: Optional[csv.DictWriter], f: Optional[object], rows: L
             f.close()
     except Exception:
         pass
-    # If aborting, remove CSV file if it exists
-    if ABORT_WITHOUT_SAVE and CSV_PATH:
+    # If aborting, remove CSV/metadata files if they exist
+    if ABORT_WITHOUT_SAVE:
         try:
-            if os.path.exists(CSV_PATH):
+            if CSV_PATH and os.path.exists(CSV_PATH):
                 os.remove(CSV_PATH)
+        except Exception:
+            pass
+        try:
+            if META_PATH and os.path.exists(META_PATH):
+                os.remove(META_PATH)
         except Exception:
             pass
     # Close window
@@ -731,7 +802,7 @@ def graceful_quit(writer: Optional[csv.DictWriter], f: Optional[object], rows: L
 # =========================
 
 def main(argv: Optional[List[str]] = None) -> int:
-    global CURRENT_PARTICIPANT, SESSION_TS, CSV_PATH
+    global CURRENT_PARTICIPANT, SESSION_TS, CSV_PATH, META_PATH
 
     parser = argparse.ArgumentParser(description="PsychoPy N-back Task")
     parser.add_argument("--participant", "-p", default="anon", help="Participant ID")
@@ -740,6 +811,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--trials", type=int, default=TRIALS_PER_BLOCK, help="Trials per block")
     parser.add_argument("--no-practice", action="store_true", help="Skip practice")
     parser.add_argument("--practice-trials", type=int, default=PRACTICE_TRIALS, help="Number of practice trials")
+    # New controls
+    parser.add_argument("--iti-min", type=int, default=ITI_JITTER_RANGE_MS[0], help="Minimum ITI jitter in ms")
+    parser.add_argument("--iti-max", type=int, default=ITI_JITTER_RANGE_MS[1], help="Maximum ITI jitter in ms")
+    parser.add_argument("--lure-nminus1", type=float, default=LURE_N_MINUS_1_RATE, help="Probability of n-1 lures per non-target trial")
+    parser.add_argument("--lure-nplus1", type=float, default=LURE_N_PLUS_1_RATE, help="Probability of n+1 lures per non-target trial")
+    parser.add_argument("--target-rate", type=float, default=TARGET_RATE, help="Target rate (0-1) per block")
+    parser.add_argument("--max-consec-targets", type=int, default=MAX_CONSEC_TARGETS_DEFAULT, help="Maximum allowed consecutive targets")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     args = parser.parse_args(argv)
 
     n_back = max(1, min(3, int(args.n_back)))
@@ -748,9 +827,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     CURRENT_PARTICIPANT = safe_filename(str(args.participant)) or "anon"
     SESSION_TS = timestamp()
 
+    # Configure RNG
+    if args.seed is not None:
+        random.seed(int(args.seed))
+
+    # Apply CLI config
+    global CFG_TARGET_RATE, CFG_LURE_NM1, CFG_LURE_NP1, CFG_MAX_CONSEC_TARGETS, CFG_ITI_RANGE_MS
+    CFG_TARGET_RATE = float(max(0.0, min(1.0, args.target_rate)))
+    CFG_LURE_NM1 = float(max(0.0, min(1.0, args.lure_nminus1)))
+    CFG_LURE_NP1 = float(max(0.0, min(1.0, args.lure_nplus1)))
+    CFG_MAX_CONSEC_TARGETS = max(1, int(args.max_consec_targets))
+    iti_min = max(0, int(args.iti_min))
+    iti_max = max(iti_min, int(args.iti_max))
+    CFG_ITI_RANGE_MS = (iti_min, iti_max)
+
     make_data_dir(DATA_DIR)
     csv_name = f"nback_{CURRENT_PARTICIPANT}_{SESSION_TS}.csv"
     CSV_PATH = os.path.join(DATA_DIR, csv_name)
+    META_PATH = os.path.join(DATA_DIR, f"nback_{CURRENT_PARTICIPANT}_{SESSION_TS}.meta.json")
 
     # Configure window
     win = visual.Window(size=(1280, 720), color=BACKGROUND_COLOR, units="height", fullscr=False)
@@ -772,6 +866,36 @@ def main(argv: Optional[List[str]] = None) -> int:
     writer = csv.DictWriter(f, fieldnames=fieldnames)
     writer.writeheader()
 
+    # Write sidecar metadata JSON for reproducibility
+    try:
+        meta = {
+            "participant_id": CURRENT_PARTICIPANT,
+            "session_timestamp": SESSION_TS,
+            "n_back": n_back,
+            "blocks": n_blocks,
+            "trials_per_block": trials_per_block,
+            "practice_trials": int(args.practice_trials),
+            "practice_target_rate": PRACTICE_TARGET_RATE,
+            "practice_has_lures": PRACTICE_HAS_LURES,
+            "target_rate": CFG_TARGET_RATE,
+            "lure_nminus1_rate": CFG_LURE_NM1,
+            "lure_nplus1_rate": CFG_LURE_NP1,
+            "max_consec_targets": CFG_MAX_CONSEC_TARGETS,
+            "iti_ms_range": list(CFG_ITI_RANGE_MS),
+            "seed": args.seed,
+            "letters": LETTERS,
+            "psychopy_version": None,
+        }
+        try:
+            import psychopy
+            meta["psychopy_version"] = getattr(psychopy, "__version__", None)
+        except Exception:
+            pass
+        with open(META_PATH, "w", encoding="utf-8") as mf:
+            json.dump(meta, mf, indent=2)
+    except Exception:
+        pass
+
     all_rows: List[Dict] = []
     overall_accs: List[int] = []
     overall_rts: List[float] = []
@@ -791,7 +915,16 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Blocks
     for b in range(1, n_blocks + 1):
-        plans = generate_sequence(n_back, trials_per_block)
+        plans = generate_sequence(
+            n_back,
+            trials_per_block,
+            target_rate=CFG_TARGET_RATE,
+            lure_n_minus_1_rate=CFG_LURE_NM1,
+            lure_n_plus_1_rate=CFG_LURE_NP1,
+            max_consec_targets=CFG_MAX_CONSEC_TARGETS,
+            iti_range_ms=CFG_ITI_RANGE_MS,
+            include_lures=True,
+        )
         block_accs: List[int] = []
         block_rts: List[float] = []
 
