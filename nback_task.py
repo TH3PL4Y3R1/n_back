@@ -95,7 +95,8 @@ KEY_QUIT = "escape"
 
 # Paths
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-CONSENT_FILE = os.path.join(os.path.dirname(__file__), "informed_consent.txt")
+TEXTS_DIR = os.path.join(os.path.dirname(__file__), "texts")
+CONSENT_FILE = os.path.join(TEXTS_DIR, "informed_consent.txt")
 
 # Runtime configuration (set from CLI in main())
 CFG_TARGET_RATE = TARGET_RATE
@@ -184,14 +185,14 @@ def show_consent(win: visual.Window, text_stim: Optional[visual.TextStim] = None
             break
 
 
-INSTR_WELCOME_FILE = os.path.join(os.path.dirname(__file__), "instructions_welcome.txt")
-INSTR_PRACTICE_FILE = os.path.join(os.path.dirname(__file__), "instructions_practice_headsup.txt")
-INSTR_TASK_FILE = os.path.join(os.path.dirname(__file__), "instructions_task_headsup.txt")
-INSTR_BREAK_FILE = os.path.join(os.path.dirname(__file__), "instructions_break.txt")
-INSTR_THANKS_FILE = os.path.join(os.path.dirname(__file__), "instructions_thanks.txt")
-INSTR_SAVE_EXIT_FILE = os.path.join(os.path.dirname(__file__), "instructions_save_and_exit.txt")
-INSTR_PRACTICE_PASS_FILE = os.path.join(os.path.dirname(__file__), "instructions_practice_feedback_pass.txt")
-INSTR_PRACTICE_FAIL_FILE = os.path.join(os.path.dirname(__file__), "instructions_practice_feedback_fail.txt")
+INSTR_WELCOME_FILE = os.path.join(TEXTS_DIR, "instructions_welcome.txt")
+INSTR_PRACTICE_FILE = os.path.join(TEXTS_DIR, "instructions_practice_headsup.txt")
+INSTR_TASK_FILE = os.path.join(TEXTS_DIR, "instructions_task_headsup.txt")
+INSTR_BREAK_FILE = os.path.join(TEXTS_DIR, "instructions_break.txt")
+INSTR_THANKS_FILE = os.path.join(TEXTS_DIR, "instructions_thanks.txt")
+INSTR_SAVE_EXIT_FILE = os.path.join(TEXTS_DIR, "instructions_save_and_exit.txt")
+INSTR_PRACTICE_PASS_FILE = os.path.join(TEXTS_DIR, "instructions_practice_feedback_pass.txt")
+INSTR_PRACTICE_FAIL_FILE = os.path.join(TEXTS_DIR, "instructions_practice_feedback_fail.txt")
 
 
 def _load_text(path: str, fallback: str) -> str:
