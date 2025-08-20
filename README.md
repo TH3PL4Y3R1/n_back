@@ -23,6 +23,36 @@ This folder contains a complete N-back task built with PsychoPy. Use a local vir
     - .venv\Scripts\python -m pip install -U pip setuptools wheel
     - .venv\Scripts\python -m pip install -r requirements.txt
 
+### Conda (Anaconda/Miniconda/Mambaforge)
+
+- One-time channel setup (recommended):
+  - `conda config --prepend channels conda-forge`
+  - `conda config --set channel_priority strict`
+
+- Create and activate the environment from `environment.yml`:
+  - conda:
+    - `conda env create -f environment.yml`
+    - `conda activate n_back`
+  - mamba (faster, if available):
+    - `mamba env create -f environment.yml`
+    - `conda activate n_back`
+
+Notes:
+- The `environment.yml` preinstalls `wxpython` from conda-forge to avoid slow/fragile source builds. Python and core tooling come from conda; PsychoPy and some extras are installed via pip from `requirements.txt`.
+
+- Update the environment after changes to `requirements.txt`:
+  - `conda env update -f environment.yml --prune`
+
+Quick pilot run (windowed, no practice, small block):
+
+```bash
+conda activate n_back
+python nback_task.py --participant pilot --no-practice --blocks 1 --trials 10 --windowed
+```
+
+Troubleshooting:
+- If you see a pip build error for wxPython (GTK/headers missing), ensure you’re using this repo’s `environment.yml` (which installs `wxpython` via conda) and that conda-forge is enabled with strict priority.
+
 ## Activate
 
 - Bash/Zsh:

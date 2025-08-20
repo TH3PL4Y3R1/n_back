@@ -1,0 +1,13 @@
+name: n_back
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  # Preinstall GUI libs to avoid pip building from source
+  - wxpython=4.2.*
+  - pip>=23
+  - setuptools
+  - wheel
+  - pip:
+      - -r requirements.txt
