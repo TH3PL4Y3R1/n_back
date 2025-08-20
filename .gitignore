@@ -33,13 +33,12 @@ logs/
 # PsychoPy user files (if generated locally)
 psychopy.cfg
 userPrefs.cfg
-# Python caches
-__pycache__/
-*.pyc
 
-# Virtual environment
-.venv/
+# Documentation backup files
+*.backup
+*_OLD.*
+*_NEW.*
 
-# OS/files
-.DS_Store
-Thumbs.db
+# Temporary files
+.tmp/
+tmp/
