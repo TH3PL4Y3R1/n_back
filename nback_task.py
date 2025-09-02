@@ -221,9 +221,8 @@ def _load_text(path: str, fallback: str) -> str:
 def show_instructions(win: visual.Window, n_back: int) -> None:
     base = _load_text(INSTR_WELCOME_FILE, f"Welcome to the {n_back}-back task.\nPress ENTER/RETURN to begin practice.")
     txt = base.replace("{{N}}", str(n_back)) + "\n\n(Press ENTER/RETURN to continue)"
-    stim = visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, txt)
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -306,9 +305,8 @@ def _make_autosized_text(
 
 def show_practice_headsup(win: visual.Window) -> None:
     msg = _load_text(INSTR_PRACTICE_FILE, "Practice is about to begin. Try to reach the accuracy criterion to proceed.") + "\n\n(Press ENTER/RETURN to start)"
-    stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, msg)
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -324,9 +322,8 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
     if mean_rt is not None:
         body += f"Mean RT (correct): {mean_rt:.0f} ms\n"
     body += "\nPress ENTER/RETURN to continue."
-    stim = visual.TextStim(win, text=body, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, body)
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -337,10 +334,9 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
 
 
 def show_thanks(win: visual.Window) -> None:
-    text = _load_text(INSTR_THANKS_FILE, "Thank you!")
-    stim = visual.TextStim(win, text=text, color=TEXT_COLOR, font=FONT, height=0.08)
-    stim.draw()
-    win.flip()
+    text = _load_text(INSTR_THANKS_FILE, "Thank you!") + "\n"
+    stim = _make_autosized_text(win, text, start_height=0.09)
+    stim.draw(); win.flip()
     send_marker(MARK_THANK_YOU, {"event": "thank_you"})
     core.wait(1.5)
 
@@ -348,9 +344,8 @@ def show_thanks(win: visual.Window) -> None:
 def show_save_and_exit_prompt(win: visual.Window) -> None:
     """Final screen: require ENTER/RETURN to save and exit; ESC is ignored here."""
     msg = _load_text(INSTR_SAVE_EXIT_FILE, "Task complete. Press ENTER/RETURN to save and exit.")
-    stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, msg + "\n")
+    stim.draw(); win.flip()
     event.clearEvents()
     # Only accept ENTER here; ignore ESC
     while True:
@@ -386,9 +381,8 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
     msg = template.replace("{{ACC}}", f"{acc*100:.1f}").replace("{{CRIT}}", f"{PRACTICE_PASS_ACC*100:.0f}")
     if mean_rt is not None:
         msg += f"\nMean RT (correct): {mean_rt:.0f} ms"
-    stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, msg)
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -402,9 +396,8 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
 def show_task_headsup(win: visual.Window, n_back: int) -> None:
     base = _load_text(INSTR_TASK_FILE, "Main task is about to begin. Press ENTER/RETURN to start the task.")
     txt = base.replace("{{N}}", str(n_back)) + "\n\n(Press ENTER/RETURN to start the task)"
-    stim = visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, txt)
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
