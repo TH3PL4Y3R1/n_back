@@ -176,11 +176,17 @@ def show_consent(win: visual.Window, text_stim: Optional[visual.TextStim] = None
         consent_text = (
             "Consent text file not found. Please add informed_consent.txt next to nback_task.py."
         )
-
+    # Auto-scale to fit window height (avoids text running off-screen on smaller displays)
     txt = f"{consent_text}\n\n(Press ENTER to continue)"
-    stim = text_stim or visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.text = txt
-    stim.pos = (0, 0)
+
+    if text_stim is None:
+        stim = _make_autosized_text(win, txt)
+    else:
+        # If a custom stim supplied, still ensure appended prompt and wrapping
+        text_stim.text = txt
+        text_stim.wrapWidth = text_stim.wrapWidth or _default_wrap_width(win)
+        stim = text_stim
+
     stim.draw()
     win.flip()
     # send_marker(MARK_CONSENT_SHOWN)  # 10: consent_shown (commented by default)
@@ -225,6 +231,77 @@ def show_instructions(win: visual.Window, n_back: int) -> None:
             graceful_quit(None, None, [], win, abort=True)
         if KEY_PROCEED in keys:
             break
+
+
+# =========================
+# Text auto-sizing utilities
+# =========================
+
+def _default_wrap_width(win: visual.Window, margin: float = 0.95) -> float:
+    """Compute a sensible wrapWidth in 'height' units given current window size.
+    When units='height', width in those units equals aspect_ratio.
+    We multiply by a margin < 1 to keep some horizontal padding.
+    """
+    try:
+        aspect = win.size[0] / float(win.size[1])
+    except Exception:
+        aspect = 16/9
+    return aspect * margin
+
+
+def _make_autosized_text(
+    win: visual.Window,
+    text: str,
+    start_height: float = 0.07,
+    min_height: float = 0.03,
+    max_height_frac: float = 0.9,
+    shrink_factor: float = 0.9,
+) -> visual.TextStim:
+    """Create a TextStim that automatically shrinks until it fits the vertical space.
+
+    Parameters:
+        win: PsychoPy Window (units='height').
+        text: Text to display.
+        start_height: Initial character height (in 'height' units).
+        min_height: Lower bound for shrinking.
+        max_height_frac: Fraction of window pixel height allowed for bounding box.
+        shrink_factor: Multiplicative factor applied per iteration when too tall.
+    """
+    wrap_w = _default_wrap_width(win)
+    h = start_height
+    stim = visual.TextStim(
+        win,
+        text=text,
+        color=TEXT_COLOR,
+        font=FONT,
+        height=h,
+        wrapWidth=wrap_w,
+        alignText='left',
+        anchorHoriz='center',
+        anchorVert='center',
+    )
+
+    # Iteratively shrink until bounding box fits within desired vertical fraction.
+    # boundingBox returns (w, h) in pixels, or None if not yet drawable.
+    try:
+        while True:
+            bb = getattr(stim, 'boundingBox', None)
+            if not bb:
+                # Draw once to establish metrics
+                stim.draw(); win.flip(); core.wait(0.01)
+                bb = getattr(stim, 'boundingBox', None)
+            if not bb:
+                break
+            bb_h = bb[1] if isinstance(bb, (list, tuple)) and len(bb) > 1 else 0
+            if bb_h <= win.size[1] * max_height_frac:
+                break
+            h *= shrink_factor
+            if h < min_height:
+                break
+            stim.height = h
+    except Exception:
+        pass  # Fail gracefully; keep last size
+    return stim
 
 
 def show_practice_headsup(win: visual.Window) -> None:
