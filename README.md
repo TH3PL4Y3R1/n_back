@@ -107,6 +107,27 @@ PsychoPy version: 2025.1.1
 
 **Note**: The `environment.yml` preinstalls `wxpython` from conda-forge to avoid slow/fragile source builds.
 
+#### Environment Strategy (Why pip for PsychoPy 2025.1.1?)
+PsychoPy 2025.1.1 (the version this project pins) is not yet available on conda-forge at the time of writing. Installing `psychopy` from conda would give you an older release. To ensure the desired version while avoiding a lengthy `wxPython` source build, the workflow is:
+
+1. Let conda install binary `wxpython` (and other compiled GUI dependencies) from conda-forge.
+2. Use pip (inside the environment) to install the exact `psychopy==2025.1.1` plus pure-Python/ wheel dependencies.
+
+This is handled automatically by `environment.yml` via its `pip:` section pointing to `requirements.txt` (which pins PsychoPy). Do NOT remove the pip install step or try to add `psychopy` under the conda dependencies list—doing so will downgrade PsychoPy.
+
+Quick verification after creation:
+```bash
+conda activate n_back
+python - <<'PY'
+import psychopy, wx
+print('PsychoPy version:', psychopy.__version__)
+print('wxPython version:', wx.version())
+PY
+```
+Expected: PsychoPy 2025.1.1 and wxPython 4.2.x.
+
+If PsychoPy shows an earlier version, you likely installed the conda package—recreate the env or `pip install --upgrade --force-reinstall psychopy==2025.1.1`.
+
 ## Quick Start
 
 ### Basic Usage
@@ -163,6 +184,8 @@ python nback_task.py --participant P001 --iti-min 400 --iti-max 1200 --target-ra
 
 ### Display and Timing
 - `--windowed` (flag): Run windowed (for debugging only; reduces timing precision)
+- `--list-screens` (flag): Enumerate detected physical displays (with indices) and exit
+- `--screen` (int): Force use of a specific screen index (e.g., 0 for primary high‑refresh monitor)
 
 ### Advanced Configuration
 - `--iti-min` (int): Minimum inter-trial interval (ms). Default: `500`
@@ -217,6 +240,17 @@ data/
 | `marker_code_resp` | int | Response marker code (empty if no response) |
 
 See [`DATA_DICTIONARY.md`](DATA_DICTIONARY.md) for complete field specifications.
+
+### Metadata JSON Contents
+Each session also writes a sidecar `*.meta.json` capturing reproducibility/context parameters. Key fields:
+- `participant_id`, `session_timestamp`
+- Task config: `n_back`, `blocks`, `trials_per_block`, practice & lure/target rates, ITI range, seed
+- `letters`: Stimulus alphabet after exclusions
+- `psychopy_version`
+- Display context: `display_refresh_hz` (measured), `window_fullscreen` (bool), `screen_index` (if specified)
+- Any CLI-overridden parameters (e.g., target rate, lure rates)
+
+Use this file when auditing timing discrepancies or reproducing sequences (combine with the seed).
 
 ## Physiological Markers (Optional)
 
@@ -341,6 +375,8 @@ PYTHONPATH=. python scripts/preview_seq.py 2 20 1234
   ```bash
   python nback_task.py --screen 0   # replace 0 with the index you want
   ```
+- If PsychoPy reports an unexpected older version, recreate the env (ensure pip installed `psychopy==2025.1.1`).
+- VS Code "No module named psychopy" issue: make sure the selected interpreter is the `n_back` conda env (or activated venv) before running.
 
 **Task not starting**:
 - Check file permissions on `texts/` directory
