@@ -180,7 +180,7 @@ def show_consent(win: visual.Window, text_stim: Optional[visual.TextStim] = None
     txt = f"{consent_text}\n\n(Press ENTER to continue)"
 
     if text_stim is None:
-        stim = _make_autosized_text(win, txt)
+        stim = _make_autosized_text(win, txt, align='left')
     else:
         # If a custom stim supplied, still ensure appended prompt and wrapping
         text_stim.text = txt
@@ -221,7 +221,7 @@ def _load_text(path: str, fallback: str) -> str:
 def show_instructions(win: visual.Window, n_back: int) -> None:
     base = _load_text(INSTR_WELCOME_FILE, f"Welcome to the {n_back}-back task.\nPress ENTER/RETURN to begin practice.")
     txt = base.replace("{{N}}", str(n_back)) + "\n\n(Press ENTER/RETURN to continue)"
-    stim = _make_autosized_text(win, txt)
+    stim = _make_autosized_text(win, txt, align='center')
     stim.draw(); win.flip()
     event.clearEvents()
     while True:
@@ -255,6 +255,7 @@ def _make_autosized_text(
     min_height: float = 0.03,
     max_height_frac: float = 0.9,
     shrink_factor: float = 0.9,
+    align: str = 'left',  # 'left' or 'center'
 ) -> visual.TextStim:
     """Create a TextStim that automatically shrinks until it fits the vertical space.
 
@@ -268,6 +269,9 @@ def _make_autosized_text(
     """
     wrap_w = _default_wrap_width(win)
     h = start_height
+    if align not in {'left','center'}:
+        align = 'left'
+    anchor_h = 'center'
     stim = visual.TextStim(
         win,
         text=text,
@@ -275,8 +279,8 @@ def _make_autosized_text(
         font=FONT,
         height=h,
         wrapWidth=wrap_w,
-        alignText='left',
-        anchorHoriz='center',
+        alignText=align,
+        anchorHoriz=anchor_h,
         anchorVert='center',
     )
 
@@ -305,7 +309,7 @@ def _make_autosized_text(
 
 def show_practice_headsup(win: visual.Window) -> None:
     msg = _load_text(INSTR_PRACTICE_FILE, "Practice is about to begin. Try to reach the accuracy criterion to proceed.") + "\n\n(Press ENTER/RETURN to start)"
-    stim = _make_autosized_text(win, msg)
+    stim = _make_autosized_text(win, msg, align='center')
     stim.draw(); win.flip()
     event.clearEvents()
     while True:
@@ -322,7 +326,7 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
     if mean_rt is not None:
         body += f"Mean RT (correct): {mean_rt:.0f} ms\n"
     body += "\nPress ENTER/RETURN to continue."
-    stim = _make_autosized_text(win, body)
+    stim = _make_autosized_text(win, body, align='center')
     stim.draw(); win.flip()
     event.clearEvents()
     while True:
@@ -335,7 +339,7 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
 
 def show_thanks(win: visual.Window) -> None:
     text = _load_text(INSTR_THANKS_FILE, "Thank you!") + "\n"
-    stim = _make_autosized_text(win, text, start_height=0.09)
+    stim = _make_autosized_text(win, text, start_height=0.09, align='center')
     stim.draw(); win.flip()
     send_marker(MARK_THANK_YOU, {"event": "thank_you"})
     core.wait(1.5)
@@ -344,7 +348,7 @@ def show_thanks(win: visual.Window) -> None:
 def show_save_and_exit_prompt(win: visual.Window) -> None:
     """Final screen: require ENTER/RETURN to save and exit; ESC is ignored here."""
     msg = _load_text(INSTR_SAVE_EXIT_FILE, "Task complete. Press ENTER/RETURN to save and exit.")
-    stim = _make_autosized_text(win, msg + "\n")
+    stim = _make_autosized_text(win, msg + "\n", align='center')
     stim.draw(); win.flip()
     event.clearEvents()
     # Only accept ENTER here; ignore ESC
@@ -381,7 +385,7 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
     msg = template.replace("{{ACC}}", f"{acc*100:.1f}").replace("{{CRIT}}", f"{PRACTICE_PASS_ACC*100:.0f}")
     if mean_rt is not None:
         msg += f"\nMean RT (correct): {mean_rt:.0f} ms"
-    stim = _make_autosized_text(win, msg)
+    stim = _make_autosized_text(win, msg, align='center')
     stim.draw(); win.flip()
     event.clearEvents()
     while True:
@@ -396,7 +400,7 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
 def show_task_headsup(win: visual.Window, n_back: int) -> None:
     base = _load_text(INSTR_TASK_FILE, "Main task is about to begin. Press ENTER/RETURN to start the task.")
     txt = base.replace("{{N}}", str(n_back)) + "\n\n(Press ENTER/RETURN to start the task)"
-    stim = _make_autosized_text(win, txt)
+    stim = _make_autosized_text(win, txt, align='center')
     stim.draw(); win.flip()
     event.clearEvents()
     while True:
