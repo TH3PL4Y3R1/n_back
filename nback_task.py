@@ -665,7 +665,49 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     # Default to full-screen; allow windowed mode for debugging
     parser.add_argument("--windowed", action="store_true", help="Run windowed for debugging (default: fullscreen)")
+    parser.add_argument("--screen", type=int, default=None, help="Display/screen index (0=primary). If unset, PsychoPy default is used.")
+    parser.add_argument("--list-screens", action="store_true", help="List detected screens and exit.")
     args = parser.parse_args(argv)
+
+    # Optional screen enumeration (no window creation yet)
+    if args.list_screens:
+        print("Listing available physical screens (indices for --screen):")
+        try:
+            try:
+                import pyglet  # type: ignore
+                display = pyglet.canvas.get_display()
+                screens = display.get_screens()
+                for idx, s in enumerate(screens):
+                    # Some backends expose x/y; guard with getattr
+                    pos = f"@({getattr(s, 'x', '?')},{getattr(s, 'y', '?')})"
+                    print(f"  [{idx}] {s.width}x{s.height} {pos}")
+            except Exception as e:
+                print(f"  (pyglet enumeration failed: {e})")
+            # Also list any named monitor profiles (Psychopy Monitor Center)
+            try:
+                from psychopy import monitors  # type: ignore
+                profs = monitors.getAllMonitors()
+                if profs:
+                    print("Monitor profiles (Monitor Center names):")
+                    for name in profs:
+                        mon = monitors.Monitor(name)
+                        size = mon.getSizePix()
+                        dist = mon.getDistance()
+                        width = mon.getWidth()
+                        meta_bits = []
+                        if size:
+                            meta_bits.append(f"res={size[0]}x{size[1]}")
+                        if dist:
+                            meta_bits.append(f"dist={dist}cm")
+                        if width:
+                            meta_bits.append(f"width={width}cm")
+                        meta = ", ".join(meta_bits)
+                        print(f"  - {name}: {meta}")
+            except Exception:
+                pass
+        finally:
+            print("Done. Use --screen INDEX to select a screen.")
+        return 0
 
     n_back = max(1, min(3, int(args.n_back)))
     n_blocks = int(args.blocks)
@@ -694,7 +736,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Configure window
     fullscr = not bool(args.windowed)
-    win = visual.Window(size=(1280, 720), color=BACKGROUND_COLOR, units="height", fullscr=fullscr, allowGUI=False)
+    win_kwargs = dict(size=(1280, 720), color=BACKGROUND_COLOR, units="height", fullscr=fullscr, allowGUI=False)
+    if args.screen is not None:
+        # PsychoPy uses pyglet screen indices; user supplies int
+        win_kwargs["screen"] = int(args.screen)
+    win = visual.Window(**win_kwargs)
     try:
         win.mouseVisible = False
     except Exception:
@@ -754,6 +800,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "psychopy_version": None,
             "display_refresh_hz": refresh_hz,
             "window_fullscreen": bool(fullscr),
+            "screen_index": args.screen,
         }
         try:
             import psychopy

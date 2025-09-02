@@ -289,6 +289,7 @@ n_back/
 - **Fullscreen mode** (default): Optimal timing precision using hardware vsync
 - **Windowed mode** (`--windowed`): Reduced precision, for debugging only
 - **Display refresh detection**: Automatic at startup, logged in metadata
+- **Multi-monitor selection**: Use `--list-screens` to enumerate physical displays, then `--screen N` to force window on a specific monitor (e.g., primary high-refresh panel)
 - **Frame-synced presentation**: All stimuli locked to display refresh
 - **Hardware keyboard**: Low-latency input when available
 
@@ -332,6 +333,14 @@ PYTHONPATH=. python scripts/preview_seq.py 2 20 1234
 - Always use fullscreen mode for experiments (`--windowed` is debugging only)
 - Run timing diagnostics: `python scripts/timing_diagnostics.py --fullscr`
 - Close other applications that might affect display performance
+- If the wrong refresh rate is detected (e.g. using a secondary 60/100 Hz monitor instead of a 144/165 Hz primary), list screens:
+  ```bash
+  python nback_task.py --list-screens
+  ```
+  Then select the desired one:
+  ```bash
+  python nback_task.py --screen 0   # replace 0 with the index you want
+  ```
 
 **Task not starting**:
 - Check file permissions on `texts/` directory
