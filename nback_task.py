@@ -176,11 +176,17 @@ def show_consent(win: visual.Window, text_stim: Optional[visual.TextStim] = None
         consent_text = (
             "Consent text file not found. Please add informed_consent.txt next to nback_task.py."
         )
-
+    # Auto-scale to fit window height (avoids text running off-screen on smaller displays)
     txt = f"{consent_text}\n\n(Press ENTER to continue)"
-    stim = text_stim or visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.text = txt
-    stim.pos = (0, 0)
+
+    if text_stim is None:
+        stim = _make_autosized_text(win, txt, align='left')
+    else:
+        # If a custom stim supplied, still ensure appended prompt and wrapping
+        text_stim.text = txt
+        text_stim.wrapWidth = text_stim.wrapWidth or _default_wrap_width(win)
+        stim = text_stim
+
     stim.draw()
     win.flip()
     # send_marker(MARK_CONSENT_SHOWN)  # 10: consent_shown (commented by default)
@@ -215,9 +221,8 @@ def _load_text(path: str, fallback: str) -> str:
 def show_instructions(win: visual.Window, n_back: int) -> None:
     base = _load_text(INSTR_WELCOME_FILE, f"Welcome to the {n_back}-back task.\nPress ENTER/RETURN to begin practice.")
     txt = base.replace("{{N}}", str(n_back)) + "\n\n(Press ENTER/RETURN to continue)"
-    stim = visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, txt, align='center')
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -227,11 +232,85 @@ def show_instructions(win: visual.Window, n_back: int) -> None:
             break
 
 
+# =========================
+# Text auto-sizing utilities
+# =========================
+
+def _default_wrap_width(win: visual.Window, margin: float = 0.95) -> float:
+    """Compute a sensible wrapWidth in 'height' units given current window size.
+    When units='height', width in those units equals aspect_ratio.
+    We multiply by a margin < 1 to keep some horizontal padding.
+    """
+    try:
+        aspect = win.size[0] / float(win.size[1])
+    except Exception:
+        aspect = 16/9
+    return aspect * margin
+
+
+def _make_autosized_text(
+    win: visual.Window,
+    text: str,
+    start_height: float = 0.07,
+    min_height: float = 0.03,
+    max_height_frac: float = 0.9,
+    shrink_factor: float = 0.9,
+    align: str = 'left',  # 'left' or 'center'
+) -> visual.TextStim:
+    """Create a TextStim that automatically shrinks until it fits the vertical space.
+
+    Parameters:
+        win: PsychoPy Window (units='height').
+        text: Text to display.
+        start_height: Initial character height (in 'height' units).
+        min_height: Lower bound for shrinking.
+        max_height_frac: Fraction of window pixel height allowed for bounding box.
+        shrink_factor: Multiplicative factor applied per iteration when too tall.
+    """
+    wrap_w = _default_wrap_width(win)
+    h = start_height
+    if align not in {'left','center'}:
+        align = 'left'
+    anchor_h = 'center'
+    stim = visual.TextStim(
+        win,
+        text=text,
+        color=TEXT_COLOR,
+        font=FONT,
+        height=h,
+        wrapWidth=wrap_w,
+        alignText=align,
+        anchorHoriz=anchor_h,
+        anchorVert='center',
+    )
+
+    # Iteratively shrink until bounding box fits within desired vertical fraction.
+    # boundingBox returns (w, h) in pixels, or None if not yet drawable.
+    try:
+        while True:
+            bb = getattr(stim, 'boundingBox', None)
+            if not bb:
+                # Draw once to establish metrics
+                stim.draw(); win.flip(); core.wait(0.01)
+                bb = getattr(stim, 'boundingBox', None)
+            if not bb:
+                break
+            bb_h = bb[1] if isinstance(bb, (list, tuple)) and len(bb) > 1 else 0
+            if bb_h <= win.size[1] * max_height_frac:
+                break
+            h *= shrink_factor
+            if h < min_height:
+                break
+            stim.height = h
+    except Exception:
+        pass  # Fail gracefully; keep last size
+    return stim
+
+
 def show_practice_headsup(win: visual.Window) -> None:
     msg = _load_text(INSTR_PRACTICE_FILE, "Practice is about to begin. Try to reach the accuracy criterion to proceed.") + "\n\n(Press ENTER/RETURN to start)"
-    stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, msg, align='center')
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -247,9 +326,8 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
     if mean_rt is not None:
         body += f"Mean RT (correct): {mean_rt:.0f} ms\n"
     body += "\nPress ENTER/RETURN to continue."
-    stim = visual.TextStim(win, text=body, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, body, align='center')
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -260,10 +338,9 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
 
 
 def show_thanks(win: visual.Window) -> None:
-    text = _load_text(INSTR_THANKS_FILE, "Thank you!")
-    stim = visual.TextStim(win, text=text, color=TEXT_COLOR, font=FONT, height=0.08)
-    stim.draw()
-    win.flip()
+    text = _load_text(INSTR_THANKS_FILE, "Thank you!") + "\n"
+    stim = _make_autosized_text(win, text, start_height=0.09, align='center')
+    stim.draw(); win.flip()
     send_marker(MARK_THANK_YOU, {"event": "thank_you"})
     core.wait(1.5)
 
@@ -271,9 +348,8 @@ def show_thanks(win: visual.Window) -> None:
 def show_save_and_exit_prompt(win: visual.Window) -> None:
     """Final screen: require ENTER/RETURN to save and exit; ESC is ignored here."""
     msg = _load_text(INSTR_SAVE_EXIT_FILE, "Task complete. Press ENTER/RETURN to save and exit.")
-    stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, msg + "\n", align='center')
+    stim.draw(); win.flip()
     event.clearEvents()
     # Only accept ENTER here; ignore ESC
     while True:
@@ -309,9 +385,8 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
     msg = template.replace("{{ACC}}", f"{acc*100:.1f}").replace("{{CRIT}}", f"{PRACTICE_PASS_ACC*100:.0f}")
     if mean_rt is not None:
         msg += f"\nMean RT (correct): {mean_rt:.0f} ms"
-    stim = visual.TextStim(win, text=msg, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, msg, align='center')
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -325,9 +400,8 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
 def show_task_headsup(win: visual.Window, n_back: int) -> None:
     base = _load_text(INSTR_TASK_FILE, "Main task is about to begin. Press ENTER/RETURN to start the task.")
     txt = base.replace("{{N}}", str(n_back)) + "\n\n(Press ENTER/RETURN to start the task)"
-    stim = visual.TextStim(win, text=txt, color=TEXT_COLOR, font=FONT, height=0.06, wrapWidth=1.5)
-    stim.draw()
-    win.flip()
+    stim = _make_autosized_text(win, txt, align='center')
+    stim.draw(); win.flip()
     event.clearEvents()
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
@@ -591,7 +665,49 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     # Default to full-screen; allow windowed mode for debugging
     parser.add_argument("--windowed", action="store_true", help="Run windowed for debugging (default: fullscreen)")
+    parser.add_argument("--screen", type=int, default=None, help="Display/screen index (0=primary). If unset, PsychoPy default is used.")
+    parser.add_argument("--list-screens", action="store_true", help="List detected screens and exit.")
     args = parser.parse_args(argv)
+
+    # Optional screen enumeration (no window creation yet)
+    if args.list_screens:
+        print("Listing available physical screens (indices for --screen):")
+        try:
+            try:
+                import pyglet  # type: ignore
+                display = pyglet.canvas.get_display()
+                screens = display.get_screens()
+                for idx, s in enumerate(screens):
+                    # Some backends expose x/y; guard with getattr
+                    pos = f"@({getattr(s, 'x', '?')},{getattr(s, 'y', '?')})"
+                    print(f"  [{idx}] {s.width}x{s.height} {pos}")
+            except Exception as e:
+                print(f"  (pyglet enumeration failed: {e})")
+            # Also list any named monitor profiles (Psychopy Monitor Center)
+            try:
+                from psychopy import monitors  # type: ignore
+                profs = monitors.getAllMonitors()
+                if profs:
+                    print("Monitor profiles (Monitor Center names):")
+                    for name in profs:
+                        mon = monitors.Monitor(name)
+                        size = mon.getSizePix()
+                        dist = mon.getDistance()
+                        width = mon.getWidth()
+                        meta_bits = []
+                        if size:
+                            meta_bits.append(f"res={size[0]}x{size[1]}")
+                        if dist:
+                            meta_bits.append(f"dist={dist}cm")
+                        if width:
+                            meta_bits.append(f"width={width}cm")
+                        meta = ", ".join(meta_bits)
+                        print(f"  - {name}: {meta}")
+            except Exception:
+                pass
+        finally:
+            print("Done. Use --screen INDEX to select a screen.")
+        return 0
 
     n_back = max(1, min(3, int(args.n_back)))
     n_blocks = int(args.blocks)
@@ -620,7 +736,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Configure window
     fullscr = not bool(args.windowed)
-    win = visual.Window(size=(1280, 720), color=BACKGROUND_COLOR, units="height", fullscr=fullscr, allowGUI=False)
+    win_kwargs = dict(size=(1280, 720), color=BACKGROUND_COLOR, units="height", fullscr=fullscr, allowGUI=False)
+    if args.screen is not None:
+        # PsychoPy uses pyglet screen indices; user supplies int
+        win_kwargs["screen"] = int(args.screen)
+    win = visual.Window(**win_kwargs)
     try:
         win.mouseVisible = False
     except Exception:
@@ -680,6 +800,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "psychopy_version": None,
             "display_refresh_hz": refresh_hz,
             "window_fullscreen": bool(fullscr),
+            "screen_index": args.screen,
         }
         try:
             import psychopy
