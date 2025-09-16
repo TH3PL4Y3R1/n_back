@@ -4,10 +4,18 @@ channels:
   - defaults
 dependencies:
   - python=3.10
-  # Preinstall GUI libs to avoid pip building from source
+  # Heavy GUI/runtime libs from conda (binary) to speed pip install of PsychoPy
   - wxpython=4.2.*
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - pillow
   - pip>=23
   - setuptools
   - wheel
+  # PsychoPy & marker libs via pip (conda does not yet have 2025.1.1 build)
   - pip:
-      - -r requirements.txt
+      - psychopy==2025.1.1
+      - pylsl>=1.16.2
+      - pyserial>=3.5
