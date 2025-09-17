@@ -24,8 +24,8 @@ This implementation provides:
 | **Display** | Any | Fullscreen recommended for precise timing |
 
 **Optional Dependencies** (pre-installed):
-- `pylsl` ≥1.16.2 - For Lab Streaming Layer markers
-- `pyserial` ≥3.5 - For serial port trigger devices
+- `pylsl` >=1.16.2 - For Lab Streaming Layer markers
+- `pyserial` >=3.5 - For serial port trigger devices
 
 ## Installation and Setup
 
@@ -47,7 +47,7 @@ source .venv/bin/activate
 
 # Upgrade pip and install dependencies
 .venv/bin/python -m pip install -U pip setuptools wheel
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e .
 
 # Verify installation
 python check_psychopy.py
@@ -67,7 +67,7 @@ py -3.10 -m venv .venv
 
 # Upgrade pip and install dependencies
 .venv\Scripts\python -m pip install -U pip setuptools wheel
-.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pip install -e .
 
 # Verify installation
 python check_psychopy.py
@@ -94,7 +94,7 @@ python check_psychopy.py
 conda config --prepend channels conda-forge
 conda config --set channel_priority strict
 
-# Update environment after changes to requirements.txt
+# Update environment after changes to environment.yml or pyproject.toml
 conda env update -f environment.yml --prune
 ```
 
@@ -113,7 +113,7 @@ PsychoPy 2025.1.1 (the version this project pins) is not yet available on conda-
 1. Let conda install binary `wxpython` (and other compiled GUI dependencies) from conda-forge.
 2. Use pip (inside the environment) to install the exact `psychopy==2025.1.1` plus pure-Python/ wheel dependencies.
 
-This is handled automatically by `environment.yml` via its `pip:` section pointing to `requirements.txt` (which pins PsychoPy). Do NOT remove the pip install step or try to add `psychopy` under the conda dependencies list—doing so will downgrade PsychoPy.
+This is handled automatically by `environment.yml`: after solving the binary dependencies with conda it runs `pip install -e .`, which installs PsychoPy and the marker libraries from `pyproject.toml`. Keep that pip step in place instead of adding `psychopy` to the conda dependencies list; otherwise conda will downgrade the version.
 
 Quick verification after creation:
 ```bash
@@ -126,13 +126,13 @@ PY
 ```
 Expected: PsychoPy 2025.1.1 and wxPython 4.2.x.
 
-If PsychoPy shows an earlier version, you likely installed the conda package—recreate the env or `pip install --upgrade --force-reinstall psychopy==2025.1.1`.
+If PsychoPy shows an earlier version, you likely installed the conda package; recreate the env or run `python -m pip install --upgrade --force-reinstall psychopy==2025.1.1`.
 
 ## Quick Start
 
 ### Basic Usage
 
-Run a complete experiment with default settings (2-back, 2 blocks × 120 trials):
+Run a complete experiment with default settings (2-back, 2 blocks - 120 trials):
 ```bash
 python nback_task.py --participant test
 ```
@@ -185,7 +185,7 @@ python nback_task.py --participant P001 --iti-min 400 --iti-max 1200 --target-ra
 ### Display and Timing
 - `--windowed` (flag): Run windowed (for debugging only; reduces timing precision)
 - `--list-screens` (flag): Enumerate detected physical displays (with indices) and exit
-- `--screen` (int): Force use of a specific screen index (e.g., 0 for primary high‑refresh monitor)
+- `--screen` (int): Force use of a specific screen index (e.g., 0 for primary high-refresh monitor)
 
 ### Advanced Configuration
 - `--iti-min` (int): Minimum inter-trial interval (ms). Default: `500`
@@ -216,8 +216,8 @@ python nback_task.py --participant P001 --iti-min 400 --iti-max 1200 --target-ra
 ### File Structure
 ```
 data/
-├── nback_{participant}_{YYYYMMDD_HHMMSS}.csv     # Trial data
-└── nback_{participant}_{YYYYMMDD_HHMMSS}.meta.json  # Metadata
+|- nback_{participant}_{YYYYMMDD_HHMMSS}.csv     # Trial data
+\- nback_{participant}_{YYYYMMDD_HHMMSS}.meta.json  # Metadata
 ```
 
 ### Trial Data Columns
@@ -297,24 +297,24 @@ The task includes marker support for EEG/physiological recordings but is disable
 
 ```
 n_back/
-├── README.md              # This file
-├── DATA_DICTIONARY.md     # Complete data field descriptions
-├── requirements.txt       # Python dependencies
-├── environment.yml        # Conda environment specification
-├── check_psychopy.py      # Installation verification script
-├── nback_task.py         # Main task script
-├── nback/                # Task modules
-│   ├── __init__.py
-│   ├── markers.py        # Marker/trigger integration
-│   └── sequences.py      # Sequence generation logic
-├── scripts/              # Utility scripts
-│   ├── timing_diagnostics.py    # Display timing assessment
-│   ├── preview_seq.py           # Sequence preview tool
-│   └── local_sequence_check.py  # Sequence validation
-└── texts/                # Instruction text files
-    ├── informed_consent.txt
-    ├── instructions_welcome.txt
-    └── ... (other instruction files)
+|- README.md              # This file
+|- DATA_DICTIONARY.md     # Complete data field descriptions
+|- requirements.txt       # Editable install helper
+|- environment.yml        # Conda environment specification
+|- check_psychopy.py      # Installation verification script
+|- nback_task.py         # Main task script
+|- nback/                # Task modules
+|  |- __init__.py
+|  |- markers.py        # Marker/trigger integration
+|  \- sequences.py      # Sequence generation logic
+|- scripts/              # Utility scripts
+|  |- timing_diagnostics.py    # Display timing assessment
+|  |- preview_seq.py           # Sequence preview tool
+|  \- local_sequence_check.py  # Sequence validation
+\- texts/                # Instruction text files
+   |- informed_consent.txt
+   |- instructions_welcome.txt
+   \- ... (other instruction files)
 ```
 
 ## Timing and Performance
