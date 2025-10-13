@@ -6,8 +6,8 @@ Timing diagnostics for PsychoPy on this machine.
 - Optional full-screen toggle via CLI.
 
 Usage:
-  python scripts/timing_diagnostics.py            # windowed
-  python scripts/timing_diagnostics.py --fullscr   # full-screen
+    python scripts/timing_diagnostics.py             # windowed
+    python scripts/timing_diagnostics.py --fullscr   # full-screen
 """
 from __future__ import annotations
 

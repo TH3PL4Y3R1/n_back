@@ -1,5 +1,19 @@
 from __future__ import annotations
 
+"""Sequence generation for the PsychoPy N-back task.
+
+Responsibilities:
+- Build per-trial plans (stimulus, target flag, lure type, planned ITI) honoring
+    N-back constraints, target/lure rates, and soft letter balancing.
+- Enforce simple constraints (no targets in first N trials, limit consecutive
+    targets, avoid immediate accidental repeats for N>1, and lure validity).
+
+Timing notes:
+- The task uses a fixed-SOA pacing model. The sequence provides a per-trial
+    `iti_ms` that represents SOA - STIM_DUR_MS (i.e., the remainder of the trial
+    after the stimulus). Presentation logic in nback_task.py controls when to flip.
+"""
+
 import random
 import string
 from dataclasses import dataclass
@@ -13,10 +27,17 @@ LURE_N_PLUS_1_RATE = 0.05
 MAX_IDENTICAL_RUN = 2
 MAX_ATTEMPTS = 300
 MAX_CONSEC_TARGETS_DEFAULT = 1
-ITI_JITTER_RANGE_MS = (500, 900)
 
 @dataclass
 class TrialPlan:
+    """Per-trial presentation plan.
+
+    Fields:
+    - stimulus: Letter to present
+    - is_target: 1 if this trial is an N-back target, else 0
+    - lure_type: "none", "n-1", or "n+1" lure category
+    - iti_ms: planned ITI remainder (SOA - stimulus duration)
+    """
     stimulus: str
     is_target: int
     lure_type: str
@@ -24,6 +45,7 @@ class TrialPlan:
 
 
 def _choose_letter(candidates: List[str], freq: Dict[str, int], soft_balance: bool = True) -> str:
+    """Choose a letter, optionally soft-balancing toward less frequent ones."""
     if not candidates:
         candidates = LETTERS[:]
     if soft_balance:
@@ -42,6 +64,7 @@ def _choose_letter(candidates: List[str], freq: Dict[str, int], soft_balance: bo
 
 
 def _valid_run_limit(seq: List[str], candidate: str, max_run: int) -> bool:
+    """Return True if adding candidate keeps identical-letter runs within max_run."""
     if max_run <= 0:
         return True
     run_len = 1
@@ -55,6 +78,11 @@ def _valid_run_limit(seq: List[str], candidate: str, max_run: int) -> bool:
 def validate_sequence(seq: List[str], is_target_flags: List[int], lure_types: List[str], *,
                       n_back: int, target_rate: float, tolerance: int,
                       max_consec_targets: int) -> Tuple[bool, str]:
+    """Validate a generated sequence against core constraints.
+
+    Note: `tolerance` parameter is reserved for future use and currently unused.
+    Returns (ok, reason).
+    """
     n_trials = len(seq)
     if any(is_target_flags[i] == 1 for i in range(0, min(n_back, n_trials))):
         return False, "Target in first N trials"
@@ -98,10 +126,12 @@ def validate_sequence(seq: List[str], is_target_flags: List[int], lure_types: Li
 
 
 def _sample_target_indices(n_back: int, n_trials: int, desired: int, max_consec_targets: int, *, attempts: int = 200) -> Optional[List[int]]:
-    """Randomly choose target indices >= n_back satisfying:
-    - No more than max_consec_targets consecutive targets
-    - No N-back chaining: i and i-n_back cannot both be targets (breaks repeating N-back cycles)
-    Returns sorted indices or None on failure.
+    """Sample target indices >= n_back honoring constraints.
+
+    Constraints:
+    - No more than `max_consec_targets` consecutive targets
+    - Break N-back chains: avoid selecting i if (i - n_back) is already a target
+    Returns: sorted index list or None on failure.
     """
     if desired <= 0:
         return []
@@ -142,10 +172,26 @@ def generate_sequence(n_back: int, n_trials: int, *,
                       lure_n_plus_1_rate: float = LURE_N_PLUS_1_RATE,
                       max_consec_targets: int = MAX_CONSEC_TARGETS_DEFAULT,
                       max_identical_run: int = MAX_IDENTICAL_RUN,
-                      iti_range_ms: Tuple[int, int] = ITI_JITTER_RANGE_MS,
+                      fixed_iti_ms: int = 500,
                       max_attempts: int = MAX_ATTEMPTS,
                       soft_balance_initial: bool = True,
                       include_lures: bool = True) -> List[TrialPlan]:
+    """Generate a list of TrialPlan entries for a block.
+
+    Inputs:
+    - n_back: N level (1/2/3)
+    - n_trials: number of trials to produce
+    - target_rate: approximate fraction of targets (validated within ±1 trial)
+    - lure_n_minus_1_rate / lure_n_plus_1_rate: per non-target probabilities
+    - max_consec_targets: max consecutive targets allowed
+    - max_identical_run: cap identical-letter runs unless required by constraints
+    - fixed_iti_ms: ITI remainder per trial (SOA - stimulus duration)
+    - max_attempts: number of attempts to produce a valid sequence
+    - soft_balance_initial: favor less-frequent letters early
+    - include_lures: whether to include lures on non-target trials
+
+    Returns: list[TrialPlan]
+    """
     tolerance = 1
     desired_targets = round(target_rate * n_trials)
 
@@ -161,7 +207,7 @@ def generate_sequence(n_back: int, n_trials: int, *,
         target_set = set(target_indices)
 
         for i in range(n_trials):
-            iti_ms = random.randint(iti_range_ms[0], iti_range_ms[1])
+            iti_ms = int(fixed_iti_ms)
             planned_lure_type = "none"
             # Target placement by pre-sampled indices
             if i in target_set and i >= n_back:
@@ -235,7 +281,7 @@ def generate_sequence(n_back: int, n_trials: int, *,
 
         plans: List[TrialPlan] = []
         for i in range(n_trials):
-            iti_ms = random.randint(iti_range_ms[0], iti_range_ms[1])
+            iti_ms = int(fixed_iti_ms)
             plans.append(TrialPlan(
                 stimulus=seq[i],
                 is_target=is_target_flags[i],
@@ -252,7 +298,7 @@ def generate_sequence(n_back: int, n_trials: int, *,
         lure_n_plus_1_rate=lure_n_plus_1_rate,
         max_consec_targets=max_consec_targets,
         max_identical_run=max_identical_run,
-        iti_range_ms=iti_range_ms,
+        fixed_iti_ms=fixed_iti_ms,
         max_attempts=1,
         soft_balance_initial=False,
         include_lures=include_lures,

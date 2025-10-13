@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""Marker transport helpers for the PsychoPy N-back task.
+
+This module centralizes event marker codes and provides simple hooks to emit
+them over different backends (LSL, serial, or parallel). By default, markers
+are disabled to keep the task self-contained; enable them only when the
+corresponding hardware/software is available and configured.
+"""
+
 from typing import Optional
 
 from psychopy import core
@@ -48,6 +56,12 @@ MARK_THANK_YOU = 90
 
 
 def send_marker(code: int, info: Optional[dict] = None) -> None:
+    """Send a marker code via the configured backend if enabled.
+
+    Parameters
+    - code: Numeric event code (see constants above)
+    - info: Optional extra context for future backends; currently unused
+    """
     if not ENABLE_MARKERS:
         return
     # --- LSL send ---

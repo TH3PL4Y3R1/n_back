@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""
-Quick local sanity check for sequence generation constraints.
-Run: python scripts/local_sequence_check.py
+"""Quick local sanity check for sequence constraints.
+
+Generates sequences for N in {1,2,3}, validates basic constraints, and prints
+the sequence, target flags, and lure types.
+
+Run: PYTHONPATH=. python scripts/local_sequence_check.py
 """
 from __future__ import annotations
 

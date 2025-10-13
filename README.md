@@ -7,6 +7,7 @@ A comprehensive implementation of the N-back cognitive task built with PsychoPy 
 The N-back task is a well-established cognitive paradigm used to assess and train working memory. Participants are presented with a sequence of stimuli (letters in this implementation) and must identify when the current stimulus matches the one presented N trials ago. For example, in a 2-back task, participants press a key when the current letter matches the letter shown 2 trials earlier.
 
 This implementation provides:
+
 - **Configurable N-back levels** (1-back, 2-back, 3-back)
 - **Precise timing** with display refresh rate detection
 - **Comprehensive data output** with trial-by-trial logging
@@ -24,6 +25,7 @@ This implementation provides:
 | **Display** | Any | Fullscreen recommended for precise timing |
 
 **Optional Dependencies** (pre-installed):
+
 - `pylsl` >=1.16.2 - For Lab Streaming Layer markers
 - `pyserial` >=3.5 - For serial port trigger devices
 
@@ -34,6 +36,7 @@ This implementation provides:
 This is the most reliable method for ensuring compatibility.
 
 #### Linux/macOS
+
 ```bash
 # Clone the repository
 git clone https://github.com/TH3PL4Y3R1/n_back.git
@@ -54,6 +57,7 @@ python check_psychopy.py
 ```
 
 #### Windows (PowerShell)
+
 ```powershell
 # Clone the repository
 git clone https://github.com/TH3PL4Y3R1/n_back.git
@@ -89,6 +93,7 @@ python check_psychopy.py
 ```
 
 #### Conda Configuration (First Time Setup)
+
 ```bash
 # Add conda-forge with strict priority (recommended)
 conda config --prepend channels conda-forge
@@ -101,13 +106,15 @@ conda env update -f environment.yml --prune
 ### Verification
 
 After installation, you should see output similar to:
-```
+
+```text
 PsychoPy version: 2025.1.1
 ```
 
 **Note**: The `environment.yml` preinstalls `wxpython` from conda-forge to avoid slow/fragile source builds.
 
 #### Environment Strategy (Why pip for PsychoPy 2025.1.1?)
+
 PsychoPy 2025.1.1 (the version this project pins) is not yet available on conda-forge at the time of writing. Installing `psychopy` from conda would give you an older release. To ensure the desired version while avoiding a lengthy `wxPython` source build, the workflow is:
 
 1. Let conda install binary `wxpython` (and other compiled GUI dependencies) from conda-forge.
@@ -116,6 +123,7 @@ PsychoPy 2025.1.1 (the version this project pins) is not yet available on conda-
 This is handled automatically by `environment.yml`: after solving the binary dependencies with conda it runs `pip install -e .`, which installs PsychoPy and the marker libraries from `pyproject.toml`. Keep that pip step in place instead of adding `psychopy` to the conda dependencies list; otherwise conda will downgrade the version.
 
 Quick verification after creation:
+
 ```bash
 conda activate n_back
 python - <<'PY'
@@ -124,6 +132,7 @@ print('PsychoPy version:', psychopy.__version__)
 print('wxPython version:', wx.version())
 PY
 ```
+
 Expected: PsychoPy 2025.1.1 and wxPython 4.2.x.
 
 If PsychoPy shows an earlier version, you likely installed the conda package; recreate the env or run `python -m pip install --upgrade --force-reinstall psychopy==2025.1.1`.
@@ -133,11 +142,13 @@ If PsychoPy shows an earlier version, you likely installed the conda package; re
 ### Basic Usage
 
 Run a complete experiment with default settings (2-back, 2 blocks - 120 trials):
+
 ```bash
 python nback_task.py --participant test
 ```
 
 Run a quick test session (windowed, no practice, small block):
+
 ```bash
 python nback_task.py --participant pilot --no-practice --blocks 1 --trials 10 --windowed
 ```
@@ -145,6 +156,7 @@ python nback_task.py --participant pilot --no-practice --blocks 1 --trials 10 --
 ### Usage Examples
 
 **Development/Testing**:
+
 ```bash
 # Windowed mode for debugging (reduced timing precision)
 python nback_task.py --participant dev --windowed
@@ -157,6 +169,7 @@ python nback_task.py --participant test --practice-trials 10
 ```
 
 **Research Configurations**:
+
 ```bash
 # 3-back task with custom parameters
 python nback_task.py --participant P001 --n-back 3 --blocks 3 --trials 100
@@ -164,32 +177,37 @@ python nback_task.py --participant P001 --n-back 3 --blocks 3 --trials 100
 # Reproducible sequence with seed
 python nback_task.py --participant P001 --seed 1234
 
-# Custom timing and target rate
-python nback_task.py --participant P001 --iti-min 400 --iti-max 1200 --target-rate 0.4
+# Custom timing and target rate (uses constant SOA)
+python nback_task.py --participant P001 --soa-ms 1800 --target-rate 0.4
 ```
 
 ## Command-Line Interface
 
 ### Required Arguments
+
 - `--participant, -p` (str): Participant ID for output filename
 
 ### Core Task Parameters
+
 - `--n-back` (int): N-back level (1, 2, or 3). Default: `2`
 - `--blocks` (int): Number of blocks in main task. Default: `2`
 - `--trials` (int): Trials per block. Default: `120`
 
 ### Practice Phase
+
 - `--no-practice` (flag): Skip practice phase
 - `--practice-trials` (int): Number of practice trials. Default: `20`
 
 ### Display and Timing
+
 - `--windowed` (flag): Run windowed (for debugging only; reduces timing precision)
 - `--list-screens` (flag): Enumerate detected physical displays (with indices) and exit
 - `--screen` (int): Force use of a specific screen index (e.g., 0 for primary high-refresh monitor)
+- `--soa-ms` (int): Constant stimulus onset asynchrony in milliseconds. Default: `2000`. Controls total trial duration and replaces ITI jitter.
+- `--kb-backend` (str): Keyboard backend `{event, ptb}`. Default: `event`. Use `ptb` for lower-latency input if supported on your OS.
 
 ### Advanced Configuration
-- `--iti-min` (int): Minimum inter-trial interval (ms). Default: `500`
-- `--iti-max` (int): Maximum inter-trial interval (ms). Default: `900`
+
 - `--target-rate` (float): Target rate (0-1). Default: `0.30`
 - `--lure-nminus1` (float): Rate of n-1 lures. Default: `0.05`
 - `--lure-nplus1` (float): Rate of n+1 lures. Default: `0.05`
@@ -214,13 +232,15 @@ python nback_task.py --participant P001 --iti-min 400 --iti-max 1200 --target-ra
 ## Data Output
 
 ### File Structure
-```
+
+```text
 data/
 |- nback_{participant}_{YYYYMMDD_HHMMSS}.csv     # Trial data
 \- nback_{participant}_{YYYYMMDD_HHMMSS}.meta.json  # Metadata
 ```
 
 ### Trial Data Columns
+
 | Column | Type | Description |
 |--------|------|-------------|
 | `participant_id` | string | Participant identifier |
@@ -242,12 +262,16 @@ data/
 See [`DATA_DICTIONARY.md`](DATA_DICTIONARY.md) for complete field specifications.
 
 ### Metadata JSON Contents
+
 Each session also writes a sidecar `*.meta.json` capturing reproducibility/context parameters. Key fields:
+
 - `participant_id`, `session_timestamp`
 - Task config: `n_back`, `blocks`, `trials_per_block`, practice & lure/target rates, ITI range, seed
 - `letters`: Stimulus alphabet after exclusions
 - `psychopy_version`
 - Display context: `display_refresh_hz` (measured), `window_fullscreen` (bool), `screen_index` (if specified)
+- Timing model: `soa_ms` (constant SOA), `fixed_iti_ms` (derived from SOA and response window)
+- Input backend: `kb_backend` ("event" or "ptb")
 - Any CLI-overridden parameters (e.g., target rate, lure rates)
 
 Use this file when auditing timing discrepancies or reproducing sequences (combine with the seed).
@@ -257,29 +281,34 @@ Use this file when auditing timing discrepancies or reproducing sequences (combi
 The task includes marker support for EEG/physiological recordings but is disabled by default.
 
 ### Enable Markers
+
 1. Edit `nback/markers.py`
 2. Set `ENABLE_MARKERS = True`
 3. Uncomment and configure ONE marker method:
 
 **Lab Streaming Layer (LSL)**:
+
 ```python
 # Uncomment LSL section in markers.py
 # Ensure pylsl receiver is running
 ```
 
 **Serial Port**:
+
 ```python
 # Uncomment Serial section in markers.py
 # Update port name: '/dev/ttyUSB0' (Linux) or 'COM3' (Windows)
 ```
 
 **Parallel Port**:
+
 ```python
 # Uncomment Parallel section in markers.py  
 # Update address: typically 0x0378
 ```
 
 ### Marker Codes
+
 | Event | Code |
 |-------|------|
 | Consent shown | 10 |
@@ -295,7 +324,7 @@ The task includes marker support for EEG/physiological recordings but is disable
 
 ## Repository Structure
 
-```
+```text
 n_back/
 |- README.md              # This file
 |- DATA_DICTIONARY.md     # Complete data field descriptions
@@ -320,6 +349,7 @@ n_back/
 ## Timing and Performance
 
 ### Timing Precision
+
 - **Fullscreen mode** (default): Optimal timing precision using hardware vsync
 - **Windowed mode** (`--windowed`): Reduced precision, for debugging only
 - **Display refresh detection**: Automatic at startup, logged in metadata
@@ -327,14 +357,32 @@ n_back/
 - **Frame-synced presentation**: All stimuli locked to display refresh
 - **Hardware keyboard**: Low-latency input when available
 
+### Constant SOA (Stimulus Onset Asynchrony)
+
+- The task uses a constant SOA for predictable trial timing. The current default is `--soa-ms 2500` (2.5 seconds per trial).
+- Within each trial:
+  - Stimulus duration: 500 ms
+  - Response window: equals SOA (responses accepted until next onset)
+  - Fixation fills the remainder after the stimulus until the next onset
+- Legacy ITI jitter has been removed. Adjust `--soa-ms` to change overall pacing.
+
+### Keyboard backend selection
+
+- Choose the keyboard input backend via `--kb-backend {event,ptb}`. Default: `event` (safe, compatible).
+- `ptb` uses the Psychtoolbox hardware keyboard for lower-latency input. On some Linux systems, this may require real-time scheduling privileges; if unavailable, the task falls back to the `event` backend. If you encounter startup issues with `ptb`, use `--kb-backend event`.
+
 ### Performance Monitoring
+
 Run timing diagnostics to assess your system:
+
 ```bash
 python scripts/timing_diagnostics.py --fullscr
 ```
 
 ### Sequence Preview
+
 Preview generated sequences without running the full task:
+
 ```bash
 # Preview 2-back sequence with 20 trials
 PYTHONPATH=. python scripts/preview_seq.py 2 20
@@ -343,20 +391,33 @@ PYTHONPATH=. python scripts/preview_seq.py 2 20
 PYTHONPATH=. python scripts/preview_seq.py 2 20 1234
 ```
 
+## Scripts
+
+Utility scripts to support setup and validation:
+
+- `scripts/timing_diagnostics.py`: Assess display timing and refresh stability
+- `scripts/preview_seq.py`: Print a generated sequence for given N/trials (optional seed)
+- `scripts/local_sequence_check.py`: Validate generated sequences against core constraints
+
+Run with `PYTHONPATH=.` when calling from the repo root so they can import the `nback` package.
+
 ## Troubleshooting
 
 ### Installation Issues
 
 **wxPython build errors** (Linux):
+
 - Use conda installation: `conda env create -f environment.yml`
 - Ensure conda-forge channel is configured with strict priority
 
 **Python version conflicts**:
+
 - Ensure Python 3.10.x is installed and specified correctly
 - On Windows: `py -3.10 -m venv .venv`
 - Check version: `python --version`
 
 **PsychoPy import failures**:
+
 - Verify installation: `python check_psychopy.py`
 - Check virtual environment activation
 - Reinstall if needed: `pip install --force-reinstall psychopy==2025.1.1`
@@ -364,26 +425,37 @@ PYTHONPATH=. python scripts/preview_seq.py 2 20 1234
 ### Runtime Issues
 
 **Display/timing problems**:
+
 - Always use fullscreen mode for experiments (`--windowed` is debugging only)
 - Run timing diagnostics: `python scripts/timing_diagnostics.py --fullscr`
 - Close other applications that might affect display performance
 - If the wrong refresh rate is detected (e.g. using a secondary 60/100 Hz monitor instead of a 144/165 Hz primary), list screens:
+
   ```bash
   python nback_task.py --list-screens
   ```
+
   Then select the desired one:
+
   ```bash
   python nback_task.py --screen 0   # replace 0 with the index you want
   ```
+
 - If PsychoPy reports an unexpected older version, recreate the env (ensure pip installed `psychopy==2025.1.1`).
 - VS Code "No module named psychopy" issue: make sure the selected interpreter is the `n_back` conda env (or activated venv) before running.
 
+**Keyboard backend issues (Linux/PTB)**:
+
+- If the PTB keyboard backend crashes or hangs at start, it's likely due to missing real-time privileges. Run with `--kb-backend event` to use the safe fallback, or consult PsychoPy/Psychtoolbox docs to enable the PTB backend on your system.
+
 **Task not starting**:
+
 - Check file permissions on `texts/` directory
 - Ensure `data/` directory exists (created automatically)
 - Verify all instruction text files are present
 
 **Data not saving**:
+
 - Check write permissions in `data/` directory
 - Avoid special characters in participant IDs
 - Complete task normally (don't force-quit)
@@ -391,7 +463,9 @@ PYTHONPATH=. python scripts/preview_seq.py 2 20 1234
 ## Customization
 
 ### Instruction Text
+
 Edit files in `texts/` directory to customize instructions:
+
 - `informed_consent.txt` - Consent form
 - `instructions_welcome.txt` - Welcome message
 - `instructions_practice_headsup.txt` - Practice instructions
@@ -399,7 +473,9 @@ Edit files in `texts/` directory to customize instructions:
 - Other instruction files for breaks, feedback, etc.
 
 ### Task Parameters
+
 Key parameters can be modified via command line or by editing defaults in `nback_task.py`:
+
 - Stimulus letters (default: A-Z excluding I, O, Q)
 - Timing parameters (ITI range, stimulus duration)
 - Sequence constraints (target rate, lure rates)
@@ -408,6 +484,7 @@ Key parameters can be modified via command line or by editing defaults in `nback
 ## Contributing
 
 We welcome contributions to improve the N-back task implementation. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+
 - Code style and standards
 - Testing procedures
 - Pull request process

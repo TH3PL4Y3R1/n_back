@@ -17,11 +17,10 @@ import random
 import string
 import argparse
 import json
-from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
-from psychopy import core, visual, event, gui
+from psychopy import core, visual, event
 try:
     from psychopy.hardware import keyboard as hw_keyboard
     _HAVE_HW_KB = True
@@ -45,6 +44,18 @@ from nback.sequences import (
     TrialPlan,
     generate_sequence,
 )
+
+"""Main N-back task entry point.
+
+Implements a fixed-SOA trial structure suitable for EEG/physio:
+- Each trial lasts exactly SOA milliseconds from stimulus onset to the next.
+- Stimulus is shown for STIM_DUR_MS, then fixation until SOA elapses.
+- Responses are accepted throughout the whole SOA window and time-locked to stimulus onset.
+- Event markers are emitted at stimulus onset, fixation onset, response, block start/end, and end-of-task.
+
+This file focuses on experiment flow, timing, rendering, and data I/O.
+Sequence generation and marker transports live in separate modules.
+"""
 
 # =========================
 # Parameters (defaults)
@@ -70,15 +81,13 @@ if EXCLUDE_CONFUSABLES:
 # Timing (ms)
 FIXATION_DUR_MS = 500
 STIM_DUR_MS = 500
-RESP_WINDOW_MS = 1500  # measured from stimulus onset
-ITI_JITTER_RANGE_MS = (500, 900)  # inclusive bounds for uniform jitter; CLI can override
+# Fixed SOA model: next stimulus onset occurs SOA ms after previous onset.
+SOA_MS_DEFAULT = 2500  # default constant stimulus onset asynchrony (ms)
 
-# Sequence constraints
+# Sequence constraints (defaults used when building blocks)
 TARGET_RATE = 0.30
 LURE_N_MINUS_1_RATE = 0.05
 LURE_N_PLUS_1_RATE = 0.05
-MAX_IDENTICAL_RUN = 2  # cap identical-letter runs unless needed for target/lure
-MAX_ATTEMPTS = 300
 
 # Default limit on consecutive targets (can be overridden via CLI)
 MAX_CONSEC_TARGETS_DEFAULT = 1
@@ -107,7 +116,10 @@ CFG_TARGET_RATE = TARGET_RATE
 CFG_LURE_NM1 = LURE_N_MINUS_1_RATE
 CFG_LURE_NP1 = LURE_N_PLUS_1_RATE
 CFG_MAX_CONSEC_TARGETS = MAX_CONSEC_TARGETS_DEFAULT
-CFG_ITI_RANGE_MS = ITI_JITTER_RANGE_MS
+CFG_SOA_MS = SOA_MS_DEFAULT
+# ITI for logging/sequence plan is the remainder of SOA after stimulus visibility
+CFG_FIXED_ITI_MS = max(0, SOA_MS_DEFAULT - STIM_DUR_MS)
+CFG_USE_HW_KB = True  # toggled by --kb-backend
 
 # Pre-created stimuli (initialized after window creation)
 STIM_LETTER: Optional[visual.TextStim] = None
@@ -131,26 +143,17 @@ def safe_filename(name: str) -> str:
 
 
 # =========================
-"""Marker plumbing now lives in nback/markers.py; send_marker is imported."""
+"""Marker plumbing lives in nback/markers.py; send_marker is imported."""
 
 
 # =========================
 # Sequence generation
 # =========================
 
-"""TrialPlan dataclass is imported from nback.sequences."""
+"""TrialPlan dataclass and sequence generation helpers are in nback.sequences."""
 
 
-# Sequence helpers are imported from nback.sequences
-
-
-# ...existing code...
-
-
-# Validation is imported from nback.sequences
-
-
-"""Sequence generation moved to nback.sequences.generate_sequence."""
+# Sequence creation is delegated to nback.sequences.generate_sequence
 
 
 # =========================
@@ -237,9 +240,10 @@ def show_instructions(win: visual.Window, n_back: int) -> None:
 # =========================
 
 def _default_wrap_width(win: visual.Window, margin: float = 0.95) -> float:
-    """Compute a sensible wrapWidth in 'height' units given current window size.
-    When units='height', width in those units equals aspect_ratio.
-    We multiply by a margin < 1 to keep some horizontal padding.
+    """Compute wrap width in units='height' using current window aspect ratio.
+
+    When units='height', the usable width equals the aspect ratio. We apply a
+    margin < 1 to keep horizontal padding.
     """
     try:
         aspect = win.size[0] / float(win.size[1])
@@ -257,15 +261,17 @@ def _make_autosized_text(
     shrink_factor: float = 0.9,
     align: str = 'left',  # 'left' or 'center'
 ) -> visual.TextStim:
-    """Create a TextStim that automatically shrinks until it fits the vertical space.
+    """Create a TextStim that automatically shrinks to fit available height.
 
-    Parameters:
-        win: PsychoPy Window (units='height').
-        text: Text to display.
-        start_height: Initial character height (in 'height' units).
-        min_height: Lower bound for shrinking.
-        max_height_frac: Fraction of window pixel height allowed for bounding box.
-        shrink_factor: Multiplicative factor applied per iteration when too tall.
+    Inputs:
+    - win: PsychoPy Window (units='height')
+    - text: Content to display
+    - start_height: Initial character height (units='height')
+    - min_height: Minimum character height
+    - max_height_frac: Max allowed fraction of window pixel height for bounding box
+    - shrink_factor: Step multiplier while shrinking
+
+    Returns: configured visual.TextStim
     """
     wrap_w = _default_wrap_width(win)
     h = start_height
@@ -308,6 +314,7 @@ def _make_autosized_text(
 
 
 def show_practice_headsup(win: visual.Window) -> None:
+    """Show a brief screen before starting practice; waits for ENTER or ESC."""
     msg = _load_text(INSTR_PRACTICE_FILE, "Practice is about to begin. Try to reach the accuracy criterion to proceed.") + "\n\n(Press ENTER/RETURN to start)"
     stim = _make_autosized_text(win, msg, align='center')
     stim.draw(); win.flip()
@@ -321,6 +328,7 @@ def show_practice_headsup(win: visual.Window) -> None:
 
 
 def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional[float]) -> None:
+    """Show between-block break with simple performance feedback."""
     template = _load_text(INSTR_BREAK_FILE, "End of block {{BLOCK}}. Accuracy: {{ACC}}%\n")
     body = template.replace("{{BLOCK}}", str(block_idx)).replace("{{ACC}}", f"{acc*100:.1f}")
     if mean_rt is not None:
@@ -338,6 +346,7 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
 
 
 def show_thanks(win: visual.Window) -> None:
+    """Display final thank-you screen and emit completion marker."""
     text = _load_text(INSTR_THANKS_FILE, "Thank you!") + "\n"
     stim = _make_autosized_text(win, text, start_height=0.09, align='center')
     stim.draw(); win.flip()
@@ -346,7 +355,7 @@ def show_thanks(win: visual.Window) -> None:
 
 
 def show_save_and_exit_prompt(win: visual.Window) -> None:
-    """Final screen: require ENTER/RETURN to save and exit; ESC is ignored here."""
+    """Final screen requiring ENTER/RETURN to save and exit; ESC ignored here."""
     msg = _load_text(INSTR_SAVE_EXIT_FILE, "Task complete. Press ENTER/RETURN to save and exit.")
     stim = _make_autosized_text(win, msg + "\n", align='center')
     stim.draw(); win.flip()
@@ -359,6 +368,13 @@ def show_save_and_exit_prompt(win: visual.Window) -> None:
 
 
 def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple[float, Optional[float]]:
+    """Run a practice block and provide pass/fail feedback.
+
+    Returns:
+    - acc: fraction correct over practice trials
+    - mean_rt: mean RT (ms) on correct trials, or None if no correct responses
+    Timing: identical to the main task (fixed SOA, stimulus then fixation).
+    """
     plans = generate_sequence(
         n_back,
         practice_trials,
@@ -366,7 +382,7 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
         lure_n_minus_1_rate=CFG_LURE_NM1 if PRACTICE_HAS_LURES else 0.0,
         lure_n_plus_1_rate=CFG_LURE_NP1 if PRACTICE_HAS_LURES else 0.0,
         max_consec_targets=CFG_MAX_CONSEC_TARGETS,
-        iti_range_ms=CFG_ITI_RANGE_MS,
+        fixed_iti_ms=CFG_FIXED_ITI_MS,
         include_lures=PRACTICE_HAS_LURES,
     )
     accs: List[int] = []
@@ -398,6 +414,7 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
 
 
 def show_task_headsup(win: visual.Window, n_back: int) -> None:
+    """Heads-up screen before the main task; waits for ENTER or ESC."""
     base = _load_text(INSTR_TASK_FILE, "Main task is about to begin. Press ENTER/RETURN to start the task.")
     txt = base.replace("{{N}}", str(n_back)) + "\n\n(Press ENTER/RETURN to start the task)"
     stim = _make_autosized_text(win, txt, align='center')
@@ -412,6 +429,7 @@ def show_task_headsup(win: visual.Window, n_back: int) -> None:
 
 
 def _ensure_stims(win: visual.Window) -> None:
+    """Create shared TextStim objects for stimulus and fixation if missing."""
     global STIM_LETTER, STIM_FIXATION
     if STIM_LETTER is None:
         STIM_LETTER = visual.TextStim(win, text="", color=TEXT_COLOR, font=FONT, height=FONT_HEIGHT)
@@ -420,27 +438,21 @@ def _ensure_stims(win: visual.Window) -> None:
 
 
 def _draw_fixation(win: visual.Window) -> None:
+    """Draw fixation (+) using a prebuilt TextStim (does not flip)."""
     _ensure_stims(win)
     assert STIM_FIXATION is not None
     STIM_FIXATION.draw()
 
 
 def _draw_stimulus(win: visual.Window, letter: str) -> None:
+    """Draw the letter stimulus using a prebuilt TextStim (does not flip)."""
     _ensure_stims(win)
     assert STIM_LETTER is not None
     STIM_LETTER.text = letter
     STIM_LETTER.draw()
 
 
-def _flip_for_ms(win: visual.Window, duration_ms: int, draw_fn=None) -> None:
-    """Flip each frame for duration_ms, optionally drawing via draw_fn before each flip."""
-    clk = core.Clock(); clk.reset()
-    while True:
-        if draw_fn is not None:
-            draw_fn()
-        win.flip()
-        if clk.getTime() * 1000.0 >= duration_ms:
-            break
+# Note: fixed-SOA pacing is implemented in run_block; no generic flip-for-ms helper needed.
 
 
 def _marker_code_for_stim(is_target: int, lure_type: str) -> int:
@@ -456,12 +468,22 @@ def _marker_code_for_stim(is_target: int, lure_type: str) -> int:
 def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[TrialPlan],
               is_practice: bool, accs_out: List[int], rts_out: List[float],
               rows_out: Optional[List[Dict]]) -> Tuple[float, Optional[float]]:
+    """Run a single block of trials using fixed-SOA pacing.
+
+    Behavior:
+    - Each trial starts with stimulus onset (flip). Marker aligns to this flip.
+    - Stimulus shown for STIM_DUR_MS, then fixation until SOA.
+    - Responses collected from onset until SOA elapses (next trial onset).
+
+    Returns:
+    - block accuracy and mean RT (ms) for correct trials in this block.
+    """
     # Start marker
     send_marker(MARK_BLOCK_START, {"event": "block_start", "n_back": n_back, "block_idx": block_idx})
 
     # Use hardware keyboard when available for better timing
     kb = None
-    if _HAVE_HW_KB:
+    if CFG_USE_HW_KB and _HAVE_HW_KB:
         try:
             kb = hw_keyboard.Keyboard(clock=core.Clock())
         except Exception:
@@ -469,21 +491,14 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
 
     # Trial loop
     correct_count = 0
-    rt_list: List[float] = []
 
     for t_idx, plan in enumerate(plans, start=1):
-        # Fixation (frame-synced)
-        def _draw_fix():
-            _draw_fixation(win)
-        send_marker(MARK_FIXATION_ONSET, {"event": "fixation_onset", "block_idx": block_idx, "trial_idx": t_idx})
-        _flip_for_ms(win, FIXATION_DUR_MS, draw_fn=_draw_fix)
-
-        # Stimulus
+        # Stimulus onset
         _draw_stimulus(win, plan.stimulus)
         # Prepare response clock aligned with the stimulus flip
         resp_clock = core.Clock()
         win.callOnFlip(resp_clock.reset)
-        if _HAVE_HW_KB and kb is not None:
+        if CFG_USE_HW_KB and _HAVE_HW_KB and kb is not None:
             kb.clock = resp_clock
             kb.clearEvents()
         stim_onset = win.flip()
@@ -502,12 +517,13 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
         resp_key = None
         rt_ms: Optional[float] = None
 
-        # Present for STIM_DUR_MS, then blank until RESP_WINDOW_MS
+        # Present for STIM_DUR_MS, then fixation until SOA; accept responses until SOA
+        fixation_mark_sent = False
         while True:
             now_ms = resp_clock.getTime() * 1000.0
-            if now_ms >= RESP_WINDOW_MS:
+            if now_ms >= CFG_SOA_MS:
                 break
-            if _HAVE_HW_KB and kb is not None:
+            if CFG_USE_HW_KB and _HAVE_HW_KB and kb is not None:
                 keys = kb.getKeys(keyList=[KEY_RESPONSE, KEY_QUIT], waitRelease=False, clear=False)
                 if keys and not got_response:
                     k = keys[0]
@@ -542,12 +558,15 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
                                 "rt_ms": rt_ms,
                             })
                             break
-            # After STIM_DUR_MS, clear screen but keep collecting
-            if now_ms >= STIM_DUR_MS:
-                win.flip()  # blank
-            else:
+            # Draw based on phase: stimulus then fixation
+            if now_ms < STIM_DUR_MS:
                 _draw_stimulus(win, plan.stimulus)
-                win.flip()
+            else:
+                if not fixation_mark_sent:
+                    send_marker(MARK_FIXATION_ONSET, {"event": "fixation_onset", "block_idx": block_idx, "trial_idx": t_idx})
+                    fixation_mark_sent = True
+                _draw_fixation(win)
+            win.flip()
 
         # Score
         is_space = (resp_key == KEY_RESPONSE)
@@ -579,14 +598,13 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
             }
             rows_out.append(row)
 
-    # ITI (frame-synced blank)
-    _flip_for_ms(win, plan.iti_ms)
+    # No trailing ITI; pacing is enforced per-trial via SOA
 
     # End marker
     send_marker(MARK_BLOCK_END, {"event": "block_end", "block_idx": block_idx})
 
     acc = correct_count / len(plans) if plans else 0.0
-    mean_rt = (sum(rt_list) / len(rt_list)) if rt_list else (sum(rts_out) / len(rts_out) if rts_out else None)
+    mean_rt = (sum(rts_out) / len(rts_out)) if rts_out else None
     return acc, mean_rt
 
 
@@ -602,7 +620,11 @@ META_PATH = ""
 
 
 def graceful_quit(writer: Optional[csv.DictWriter], f: Optional[object], rows: List[Dict], win: Optional[visual.Window], abort: bool = False) -> None:
-    """Exit the task. If abort is True (e.g., ESC pressed), don't save and delete any CSV file."""
+    """Close the task cleanly, saving rows unless aborting.
+
+    If abort is True (e.g., ESC pressed), delete any partially written files and
+    suppress saving remaining rows. Always attempts to close the PsychoPy window.
+    """
     global ABORT_WITHOUT_SAVE
     ABORT_WITHOUT_SAVE = ABORT_WITHOUT_SAVE or abort
 
@@ -646,6 +668,13 @@ def graceful_quit(writer: Optional[csv.DictWriter], f: Optional[object], rows: L
 # =========================
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """CLI entry-point for running the N-back task.
+
+    Flow:
+    - Parse CLI, configure timing (fixed SOA), input backend, and display.
+    - Consent → Instructions → Practice (optional) → Heads-up → Blocks → Thanks → Save/Exit.
+    - Writes per-trial CSV and a metadata JSON sidecar.
+    """
     global CURRENT_PARTICIPANT, SESSION_TS, CSV_PATH, META_PATH
 
     parser = argparse.ArgumentParser(description="PsychoPy N-back Task")
@@ -655,9 +684,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--trials", type=int, default=TRIALS_PER_BLOCK, help="Trials per block")
     parser.add_argument("--no-practice", action="store_true", help="Skip practice")
     parser.add_argument("--practice-trials", type=int, default=PRACTICE_TRIALS, help="Number of practice trials")
-    # New controls
-    parser.add_argument("--iti-min", type=int, default=ITI_JITTER_RANGE_MS[0], help="Minimum ITI jitter in ms")
-    parser.add_argument("--iti-max", type=int, default=ITI_JITTER_RANGE_MS[1], help="Maximum ITI jitter in ms")
+    # Fixed SOA timing (legacy ITI jitter removed)
     parser.add_argument("--lure-nminus1", type=float, default=LURE_N_MINUS_1_RATE, help="Probability of n-1 lures per non-target trial")
     parser.add_argument("--lure-nplus1", type=float, default=LURE_N_PLUS_1_RATE, help="Probability of n+1 lures per non-target trial")
     parser.add_argument("--target-rate", type=float, default=TARGET_RATE, help="Target rate (0-1) per block")
@@ -667,6 +694,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--windowed", action="store_true", help="Run windowed for debugging (default: fullscreen)")
     parser.add_argument("--screen", type=int, default=None, help="Display/screen index (0=primary). If unset, PsychoPy default is used.")
     parser.add_argument("--list-screens", action="store_true", help="List detected screens and exit.")
+    parser.add_argument("--kb-backend", choices=["ptb", "event"], default="event", help="Keyboard backend: 'ptb' (hardware; low-latency) or 'event' (fallback)")
+    parser.add_argument("--soa-ms", type=int, default=SOA_MS_DEFAULT, help="Constant stimulus onset asynchrony (ms). Default: 2500")
     args = parser.parse_args(argv)
 
     # Optional screen enumeration (no window creation yet)
@@ -720,14 +749,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         random.seed(int(args.seed))
 
     # Apply CLI config
-    global CFG_TARGET_RATE, CFG_LURE_NM1, CFG_LURE_NP1, CFG_MAX_CONSEC_TARGETS, CFG_ITI_RANGE_MS
+    global CFG_TARGET_RATE, CFG_LURE_NM1, CFG_LURE_NP1, CFG_MAX_CONSEC_TARGETS, CFG_SOA_MS, CFG_FIXED_ITI_MS
     CFG_TARGET_RATE = float(max(0.0, min(1.0, args.target_rate)))
     CFG_LURE_NM1 = float(max(0.0, min(1.0, args.lure_nminus1)))
     CFG_LURE_NP1 = float(max(0.0, min(1.0, args.lure_nplus1)))
     CFG_MAX_CONSEC_TARGETS = max(1, int(args.max_consec_targets))
-    iti_min = max(0, int(args.iti_min))
-    iti_max = max(iti_min, int(args.iti_max))
-    CFG_ITI_RANGE_MS = (iti_min, iti_max)
+    # Fixed SOA: ITI = SOA - STIM_DUR_MS; response window extends until next onset
+    CFG_SOA_MS = max(1, int(args.soa_ms))
+    CFG_FIXED_ITI_MS = max(0, CFG_SOA_MS - STIM_DUR_MS)
+    # Keyboard backend selection
+    global CFG_USE_HW_KB
+    CFG_USE_HW_KB = (args.kb_backend == "ptb") and _HAVE_HW_KB
+    if args.kb_backend == "ptb" and not _HAVE_HW_KB:
+        print("Note: psychtoolbox keyboard backend unavailable; falling back to 'event' backend.")
 
     make_data_dir(DATA_DIR)
     csv_name = f"nback_{CURRENT_PARTICIPANT}_{SESSION_TS}.csv"
@@ -794,13 +828,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             "lure_nminus1_rate": CFG_LURE_NM1,
             "lure_nplus1_rate": CFG_LURE_NP1,
             "max_consec_targets": CFG_MAX_CONSEC_TARGETS,
-            "iti_ms_range": list(CFG_ITI_RANGE_MS),
+            # constant SOA model; per-trial iti_ms equals (soa_ms - stim_dur_ms)
             "seed": args.seed,
             "letters": LETTERS,
             "psychopy_version": None,
             "display_refresh_hz": refresh_hz,
             "window_fullscreen": bool(fullscr),
             "screen_index": args.screen,
+            "soa_ms": CFG_SOA_MS,
+            "fixed_iti_ms": CFG_FIXED_ITI_MS,
+            "kb_backend": "ptb" if (CFG_USE_HW_KB and _HAVE_HW_KB) else "event",
         }
         try:
             import psychopy
@@ -830,6 +867,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     show_task_headsup(win, n_back)
 
     # Blocks
+    if n_blocks <= 0 or trials_per_block <= 0:
+        print("Note: n_blocks or trials_per_block is zero; main task is skipped.")
     for b in range(1, n_blocks + 1):
         plans = generate_sequence(
             n_back,
@@ -838,7 +877,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             lure_n_minus_1_rate=CFG_LURE_NM1,
             lure_n_plus_1_rate=CFG_LURE_NP1,
             max_consec_targets=CFG_MAX_CONSEC_TARGETS,
-            iti_range_ms=CFG_ITI_RANGE_MS,
+            fixed_iti_ms=CFG_FIXED_ITI_MS,
             include_lures=True,
         )
         block_accs: List[int] = []

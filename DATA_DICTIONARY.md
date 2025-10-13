@@ -5,9 +5,8 @@
 This document defines every field produced by the N-back PsychoPy task. It ensures anyone can interpret the dataset without reading the source code.
 
 For additional information, see:
-- [README.md](../README.md) - General usage and setup
-- [API Reference](docs/API.md) - Technical implementation details
-- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
+
+- [README.md](README.md) - General usage and setup
 
 ## File naming and location
 
@@ -20,28 +19,32 @@ For additional information, see:
 
 The following parameters are saved in the JSON metadata file accompanying each CSV data file:
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `participant_id` | string | Participant identifier |
-| `session_timestamp` | string | Session start time (`YYYYMMDD_HHMMSS`) |
-| `n_back` | int | N level (e.g., 1, 2, 3) |
-| `blocks` | int | Number of blocks in main task |
-| `trials_per_block` | int | Trials per block |
-| `practice_trials` | int | Number of practice trials |
-| `practice_target_rate` | float | Target rate in practice (0–1) |
-| `practice_has_lures` | bool | Whether practice includes lures |
-| `target_rate` | float | Target rate in main task (0–1) |
-| `lure_nminus1_rate` | float | Rate of n-1 lures (0–1) |
-| `lure_nplus1_rate` | float | Rate of n+1 lures (0–1) |
-| `max_consec_targets` | int | Maximum consecutive targets allowed |
-| `iti_ms_range` | [int, int] | Inter-trial interval range [min, max] |
-| `seed` | int or null | Random seed (null if not specified) |
-| `letters` | list of strings | Available stimulus letters |
-| `psychopy_version` | string or null | PsychoPy version used |
-| `display_refresh_hz` | float or null | Detected display refresh rate at startup |
-| `window_fullscreen` | bool | Whether task ran in fullscreen (recommended for timing) |
+| Parameter               | Type             | Description                                                            |
+|-------------------------|------------------|------------------------------------------------------------------------|
+| `participant_id`        | string           | Participant identifier                                                 |
+| `session_timestamp`     | string           | Session start time (`YYYYMMDD_HHMMSS`)                                 |
+| `n_back`                | int              | N level (e.g., 1, 2, 3)                                                |
+| `blocks`                | int              | Number of blocks in main task                                          |
+| `trials_per_block`      | int              | Trials per block                                                       |
+| `practice_trials`       | int              | Number of practice trials                                              |
+| `practice_target_rate`  | float            | Target rate in practice (0–1)                                          |
+| `practice_has_lures`    | bool             | Whether practice includes lures                                        |
+| `target_rate`           | float            | Target rate in main task (0–1)                                         |
+| `lure_nminus1_rate`     | float            | Rate of n-1 lures (0–1)                                                |
+| `lure_nplus1_rate`      | float            | Rate of n+1 lures (0–1)                                                |
+| `max_consec_targets`    | int              | Maximum consecutive targets allowed                                    |
+| `seed`                  | int or null      | Random seed (null if not specified)                                    |
+| `letters`               | list of strings  | Available stimulus letters                                             |
+| `psychopy_version`      | string or null   | PsychoPy version used                                                  |
+| `display_refresh_hz`    | float or null    | Detected display refresh rate at startup                               |
+| `window_fullscreen`     | bool             | Whether task ran in fullscreen (recommended for timing)                |
+| `screen_index`          | int or null      | Display index when multiple monitors are present (0 = primary)         |
+| `soa_ms`                | int              | Constant stimulus onset asynchrony in milliseconds (default 2500)      |
+| `fixed_iti_ms`          | int              | Derived ITI used, computed as `soa_ms - stim_dur_ms` (default 2000)    |
+| `kb_backend`            | string           | Keyboard backend: `event` (default) or `ptb`                           |
 
 ## Trial-level columns
+
 | Column name         | Description                                   | Type    | Values                               |
 |---------------------|-----------------------------------------------|---------|--------------------------------------|
 | `participant_id`    | Participant code                              | string  | alphanumeric                         |
@@ -51,10 +54,10 @@ The following parameters are saved in the JSON metadata file accompanying each C
 | `n_back`            | N level for block                             | int     | `1`, `2`, or `3`                     |
 | `stimulus`          | Letter shown                                  | string  | `A-Z` excluding I/O/Q by default     |
 | `is_target`         | Target trial flag                             | int     | `1` = target, `0` = non-target       |
-| `lure_type`         | Lure category                                 | string  | `"none"`, `"n-1"`, `"n+1"`             |
+| `lure_type`         | Lure category                                 | string  | `"none"`, `"n-1"`, `"n+1"`           |
 | `iti_ms`            | Planned inter-trial interval                  | int     | milliseconds                         |
 | `stim_onset_time`   | Stimulus onset (returned by window.flip)      | float   | seconds (high-resolution timestamp)  |
-| `response_key`      | Key pressed                                   | string  | key name (e.g., `"space"`) or empty   |
+| `response_key`      | Key pressed                                   | string  | key name (e.g., `"space"`) or empty  |
 | `rt_ms`             | Reaction time from stimulus onset             | float   | milliseconds; empty if no response   |
 | `correct`           | Response accuracy                             | int     | `1` = correct, `0` = incorrect       |
 | `marker_code_stim`  | Marker code at stimulus onset                 | int     | see marker coding                    |
@@ -78,6 +81,7 @@ Marker codes are sent at specific events (if enabled in `nback/markers.py`). Def
 | thank_you | 90 | Task completion screen |
 
 ## Sequence constraints
+
 1. No targets in first N trials
 2. Target rate ≈ target_rate ±1 trial
 3. Max consecutive targets = 1 (unless allowed)
@@ -90,6 +94,7 @@ Marker codes are sent at specific events (if enabled in `nback/markers.py`). Def
 ## Missing values policy
 
 When no response is recorded:
+
 - `response_key = ""` (empty string)
 - `rt_ms = ""` (empty string)
 - `correct = 0`
@@ -104,11 +109,13 @@ P001,20250811_113207,1,37,2,K,1,none,712,45.382,space,421.7,1,41,50
 
 ## Versioning
 
-- **Version**: 1.0.3
+- **Version**: 1.1.0
 - **Last updated**: 2025-08-20
 - **Maintainer**: N-back Task Contributors
 
 **Changelog**:
+
+- **1.1.0** — Add metadata fields `screen_index`, `soa_ms`, `fixed_iti_ms`, and `kb_backend`; clarify constant SOA timing model (default SOA 2500 ms).
 - **1.0.3** — Enhanced formatting, added cross-references, improved table structure
 - **1.0.2** — Document `display_refresh_hz` and `window_fullscreen` in metadata; minor clarifications
 - **1.0.1** — Align docs with code: marker codes 41/42/43/44 and response 50; timestamp format `YYYYMMDD_HHMMSS`; empty string policy for missing
