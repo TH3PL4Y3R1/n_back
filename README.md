@@ -515,6 +515,6 @@ If you use this implementation in your research, please cite:
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: August 2025  
+**Version**: 1.1.0  
+**Last Updated**: October 2025  
 **Maintainer**: [Add maintainer contact information]
