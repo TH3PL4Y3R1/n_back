@@ -62,12 +62,12 @@ Sequence generation and marker transports live in separate modules.
 # =========================
 # Task structure
 N_BACK_DEFAULT = 2
-N_BLOCKS = 2
-TRIALS_PER_BLOCK = 120
+N_BLOCKS = 3
+TRIALS_PER_BLOCK = 60
 
 # Practice
-PRACTICE_TRIALS = 20  # default; can be overridden via --practice-trials
-PRACTICE_TARGET_RATE = 0.25
+PRACTICE_TRIALS = 30   # default; can be overridden via --practice-trials
+PRACTICE_TARGET_RATE = 0.40
 PRACTICE_HAS_LURES = False
 # Practice passing criterion (fraction correct)
 PRACTICE_PASS_ACC = 0.75
