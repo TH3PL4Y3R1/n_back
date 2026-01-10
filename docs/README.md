@@ -157,10 +157,10 @@ If you use this implementation in your research, please cite appropriately (see 
 
 ## Version Information
 
-- **Current Version**: 1.0.0
+- **Current Version**: 1.1.0
 - **PsychoPy Version**: 2025.1.1
 - **Python Requirement**: 3.10.x
-- **Last Updated**: August 2025
+- **Last Updated**: January 2026
 
 ---
 

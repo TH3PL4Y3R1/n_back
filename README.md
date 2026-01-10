@@ -24,10 +24,10 @@ This implementation provides:
 | **PsychoPy** | 2025.1.1 | Pinned for reproducibility |
 | **Display** | Any | Fullscreen recommended for precise timing |
 
-**Optional Dependencies** (pre-installed):
+**Marker Dependencies** (installed automatically):
 
-- `pylsl` >=1.16.2 - For Lab Streaming Layer markers
-- `pyserial` >=3.5 - For serial port trigger devices
+- `pylsl` >=1.16.2 - Lab Streaming Layer markers
+- `pyserial` >=3.5 - Serial port trigger devices
 
 ## Installation and Setup
 
@@ -141,7 +141,7 @@ If PsychoPy shows an earlier version, you likely installed the conda package; re
 
 ### Basic Usage
 
-Run a complete experiment with default settings (2-back, 2 blocks - 120 trials):
+Run a complete experiment with default settings (2-back, 3 blocks - 60 trials/block):
 
 ```bash
 python nback_task.py --participant test
@@ -190,20 +190,20 @@ python nback_task.py --participant P001 --soa-ms 1800 --target-rate 0.4
 ### Core Task Parameters
 
 - `--n-back` (int): N-back level (1, 2, or 3). Default: `2`
-- `--blocks` (int): Number of blocks in main task. Default: `2`
-- `--trials` (int): Trials per block. Default: `120`
+- `--blocks` (int): Number of blocks in main task. Default: `3`
+- `--trials` (int): Trials per block. Default: `60`
 
 ### Practice Phase
 
-- `--no-practice` (flag): Skip practice phase
-- `--practice-trials` (int): Number of practice trials. Default: `20`
+- `--no-practice` (flag): Skip practice trials (the practice heads-up screen still shows before main task)
+- `--practice-trials` (int): Number of practice trials. Default: `30`
 
 ### Display and Timing
 
 - `--windowed` (flag): Run windowed (for debugging only; reduces timing precision)
 - `--list-screens` (flag): Enumerate detected physical displays (with indices) and exit
 - `--screen` (int): Force use of a specific screen index (e.g., 0 for primary high-refresh monitor)
-- `--soa-ms` (int): Constant stimulus onset asynchrony in milliseconds. Default: `2000`. Controls total trial duration and replaces ITI jitter.
+- `--soa-ms` (int): Constant stimulus onset asynchrony in milliseconds. Default: `2500`. Controls total trial duration and replaces ITI jitter.
 - `--kb-backend` (str): Keyboard backend `{event, ptb}`. Default: `event`. Use `ptb` for lower-latency input if supported on your OS.
 
 ### Advanced Configuration
@@ -251,7 +251,7 @@ data/
 | `stimulus` | string | Letter presented |
 | `is_target` | int | 1=target, 0=non-target |
 | `lure_type` | string | "none", "n-1", or "n+1" |
-| `iti_ms` | int | Inter-trial interval (milliseconds) |
+| `iti_ms` | int | Planned remainder of the constant SOA after the 500 ms stimulus (milliseconds) |
 | `stim_onset_time` | float | Stimulus onset timestamp (seconds) |
 | `response_key` | string | Key pressed ("space" or empty) |
 | `rt_ms` | float | Reaction time (milliseconds, empty if no response) |
@@ -266,11 +266,11 @@ See [`DATA_DICTIONARY.md`](DATA_DICTIONARY.md) for complete field specifications
 Each session also writes a sidecar `*.meta.json` capturing reproducibility/context parameters. Key fields:
 
 - `participant_id`, `session_timestamp`
-- Task config: `n_back`, `blocks`, `trials_per_block`, practice & lure/target rates, ITI range, seed
+- Task config: `n_back`, `blocks`, `trials_per_block`, practice & lure/target rates, seed
 - `letters`: Stimulus alphabet after exclusions
 - `psychopy_version`
 - Display context: `display_refresh_hz` (measured), `window_fullscreen` (bool), `screen_index` (if specified)
-- Timing model: `soa_ms` (constant SOA), `fixed_iti_ms` (derived from SOA and response window)
+- Timing model: `soa_ms` (constant SOA), `fixed_iti_ms` (derived from SOA minus stimulus duration)
 - Input backend: `kb_backend` ("event" or "ptb")
 - Any CLI-overridden parameters (e.g., target rate, lure rates)
 
@@ -478,6 +478,7 @@ Key parameters can be modified via command line or by editing defaults in `nback
 
 - Stimulus letters (default: A-Z excluding I, O, Q)
 - Timing parameters (ITI range, stimulus duration)
+- Timing parameters (`--soa-ms`, stimulus duration)
 - Sequence constraints (target rate, lure rates)
 - Display settings (colors, fonts, sizes)
 

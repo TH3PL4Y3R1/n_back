@@ -34,31 +34,32 @@ Display informed consent screen.
 - `text_stim`: Optional pre-configured text stimulus
 - `consent_file`: Optional path to consent file (default: texts/informed_consent.txt)
 
-##### `run_practice_block(win: visual.Window, n_back: int, n_trials: int, kb: Optional[object] = None) -> Tuple[float, float]`
+##### `run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple[float, Optional[float]]`
 Execute practice block with feedback.
 
 **Parameters:**
 - `win`: PsychoPy window object
 - `n_back`: N-back level
-- `n_trials`: Number of practice trials
-- `kb`: Optional hardware keyboard object
+- `practice_trials`: Number of practice trials
 
 **Returns:**
-- `Tuple[float, float]`: (accuracy, mean_reaction_time)
+- `Tuple[float, Optional[float]]`: (accuracy, mean_reaction_time)
 
-##### `run_main_block(win: visual.Window, n_back: int, trials: List[TrialPlan], block_idx: int, writer: csv.DictWriter, kb: Optional[object] = None) -> Tuple[float, float]`
-Execute main task block.
+##### `run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[TrialPlan], is_practice: bool, accs_out: List[int], rts_out: List[float], rows_out: Optional[List[Dict]]) -> Tuple[float, Optional[float]]`
+Execute a task block (practice or main).
 
 **Parameters:**
 - `win`: PsychoPy window object
-- `n_back`: N-back level
-- `trials`: List of trial specifications
 - `block_idx`: Block number (1-indexed)
-- `writer`: CSV writer for data output
-- `kb`: Optional hardware keyboard object
+- `n_back`: N-back level
+- `plans`: List of trial specifications
+- `is_practice`: Flag for practice mode
+- `accs_out`: List to append accuracy results
+- `rts_out`: List to append RT results
+- `rows_out`: Optional list to append data rows
 
 **Returns:**
-- `Tuple[float, float]`: (accuracy, mean_reaction_time)
+- `Tuple[float, Optional[float]]`: (accuracy, mean_reaction_time)
 
 #### Configuration Constants
 
@@ -68,23 +69,22 @@ CFG_TARGET_RATE = 0.30          # Target trial rate
 CFG_LURE_NM1 = 0.05            # N-1 lure rate
 CFG_LURE_NP1 = 0.05            # N+1 lure rate
 CFG_MAX_CONSEC_TARGETS = 1      # Max consecutive targets
-CFG_ITI_RANGE_MS = (500, 900)   # ITI range in milliseconds
+CFG_SOA_MS = 2500              # SOA in milliseconds
 
 # Display settings
-TEXT_COLOR = (1, 1, 1)          # White text
-BG_COLOR = (0, 0, 0)            # Black background
+TEXT_COLOR = [1.0, 1.0, 1.0]    # White text
+BACKGROUND_COLOR = [0.2, 0.2, 0.2] # Gray background
 FONT = "Arial"                  # Font family
-STIM_HEIGHT = 0.15              # Stimulus height (norm units)
+FONT_HEIGHT = 0.12              # Font height (norm units)
 
 # Timing
-FIXATION_DURATION_S = 0.5       # Fixation cross duration
-STIMULUS_DURATION_S = 0.5       # Stimulus duration
-RESPONSE_WINDOW_S = 2.0         # Response collection window
+FIXATION_DUR_MS = 500           # Fixation cross duration
+STIM_DUR_MS = 500               # Stimulus duration
 
 # Keys
 KEY_PROCEED = "return"          # Continue/proceed key
 KEY_QUIT = "escape"             # Quit key  
-KEY_TARGET = "space"            # Target response key
+KEY_RESPONSE = "space"          # Target response key
 ```
 
 ### `nback/sequences.py`
@@ -102,23 +102,22 @@ class TrialPlan:
     stimulus: str           # Letter to display
     is_target: bool        # Whether this is a target trial
     lure_type: str         # "none", "n-1", or "n+1"
-    iti_ms: int           # Inter-trial interval in milliseconds
+    iti_ms: int           # Fixed-SOA remainder (soa_ms - stim_dur_ms) in milliseconds
 ```
 
 #### Functions
 
-##### `generate_sequence(n_back: int, n_trials: int, target_rate: float = 0.30, lure_nminus1_rate: float = 0.05, lure_nplus1_rate: float = 0.05, max_consec_targets: int = 1, iti_range: Tuple[int, int] = (500, 900), letters: Optional[List[str]] = None, max_attempts: int = 1000) -> List[TrialPlan]`
+##### `generate_sequence(n_back: int, n_trials: int, target_rate: float = 0.30, lure_n_minus_1_rate: float = 0.05, lure_n_plus_1_rate: float = 0.05, max_consec_targets: int = 1, fixed_iti_ms: int = 500, max_attempts: int = 300, **kwargs) -> List[TrialPlan]`
 Generate a complete N-back sequence with constraints.
 
 **Parameters:**
 - `n_back`: N-back level (1, 2, or 3)
 - `n_trials`: Number of trials to generate
 - `target_rate`: Proportion of target trials (0.0-1.0)
-- `lure_nminus1_rate`: Rate of n-1 lures among non-targets
-- `lure_nplus1_rate`: Rate of n+1 lures among non-targets  
+- `lure_n_minus_1_rate`: Rate of n-1 lures among non-targets
+- `lure_n_plus_1_rate`: Rate of n+1 lures among non-targets  
 - `max_consec_targets`: Maximum consecutive targets allowed
-- `iti_range`: (min_ms, max_ms) for inter-trial intervals
-- `letters`: Optional custom letter set (default: A-Z minus I,O,Q)
+- `fixed_iti_ms`: Fixed ITI remainder (soa_ms - stim_dur_ms)
 - `max_attempts`: Maximum generation attempts before giving up
 
 **Returns:**
@@ -143,23 +142,17 @@ for trial in sequence:
     print(f"Trial: {trial.stimulus}, Target: {trial.is_target}")
 ```
 
-##### `validate_sequence(sequence: List[TrialPlan], n_back: int, target_rate: float, max_consec_targets: int) -> bool`
+##### `validate_sequence(seq: List[str], is_target_flags: List[int], lure_types: List[str], *, n_back: int, target_rate: float, tolerance: int, max_consec_targets: int) -> Tuple[bool, str]`
 Validate that a sequence meets N-back constraints.
 
 **Parameters:**
-- `sequence`: Sequence to validate
-- `n_back`: Expected N-back level
-- `target_rate`: Expected target rate (tolerance: ±1 trial)
-- `max_consec_targets`: Maximum allowed consecutive targets
+- `seq`: List of stimulus letters
+- `is_target_flags`: List of target flags (0/1)
+- `lure_types`: List of lure type strings
+- `n_back`, `target_rate`, `tolerance`, `max_consec_targets`: Constraints
 
 **Returns:**
-- `bool`: True if sequence is valid
-
-##### `get_default_letters() -> List[str]`
-Get default letter set (A-Z excluding I, O, Q).
-
-**Returns:**
-- `List[str]`: List of letter strings
+- `Tuple[bool, str]`: (is_valid, reason_if_invalid)
 
 ### `nback/markers.py`
 
@@ -276,7 +269,7 @@ Each trial generates a row with these fields:
     "stimulus": str,               # Displayed letter
     "is_target": int,              # 1=target, 0=non-target
     "lure_type": str,              # "none", "n-1", "n+1"
-    "iti_ms": int,                 # Inter-trial interval (ms)
+    "iti_ms": int,                 # Fixed-SOA remainder (soa_ms - stim_dur_ms) in ms
     "stim_onset_time": float,      # Stimulus onset timestamp (s)
     "response_key": str,           # Key pressed or ""
     "rt_ms": Union[float, str],    # Reaction time (ms) or ""
@@ -304,12 +297,15 @@ Session metadata is saved as JSON:
     "lure_nminus1_rate": float,
     "lure_nplus1_rate": float,
     "max_consec_targets": int,
-    "iti_ms_range": [int, int],
+    "soa_ms": int,
+    "fixed_iti_ms": int,           # SOA remainder after stimulus duration
     "seed": Union[int, None],
     "letters": List[str],
     "psychopy_version": Union[str, None],
     "display_refresh_hz": Union[float, None],
-    "window_fullscreen": bool
+    "window_fullscreen": bool,
+    "screen_index": Union[int, None],
+    "kb_backend": str
 }
 ```
 
@@ -356,9 +352,9 @@ Replace or modify instruction files in `texts/` directory:
 
 To use non-letter stimuli:
 
-1. **Modify `get_default_letters()` in `nback/sequences.py`**
-2. **Update stimulus rendering in `nback_task.py`**
-3. **Adjust instruction text accordingly**
+1. **Modify `LETTERS` constant**: Update the list of stimuli in `nback_task.py` and `nback/sequences.py`.
+2. **Update stimulus rendering**: If using images instead of text, modify `_draw_stimulus` in `nback_task.py` to handle `visual.ImageStim`.
+3. **Adjust instruction text**: Update files in `texts/` to reflect the new stimuli.
 
 ### Performance Monitoring
 

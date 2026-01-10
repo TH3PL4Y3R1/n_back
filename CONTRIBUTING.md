@@ -180,9 +180,10 @@ import logging
 def generate_sequence(
     n_back: int, 
     n_trials: int, 
+    *,
     target_rate: float = 0.3,
     seed: Optional[int] = None
-) -> List[str]:
+) -> List['TrialPlan']:
     """Generate N-back sequence with specified parameters.
     
     Args:
@@ -192,7 +193,7 @@ def generate_sequence(
         seed: Random seed for reproducibility
     
     Returns:
-        List of stimulus letters
+        List of TrialPlan objects for the sequence.
         
     Raises:
         ValueError: If parameters are invalid
@@ -337,17 +338,17 @@ Include the following information:
 ### Example Bug Report
 
 ```markdown
-**Bug Description**: Task crashes when using custom ITI range
+**Bug Description**: Task crashes at startup with PTB keyboard backend on Linux.
 
 **Environment**:
 - OS: Ubuntu 22.04
-- Python: 3.10.8
+- Python: 3.10.12
 - PsychoPy: 2025.1.1
 
 **Steps to Reproduce**:
-1. Run: `python nback_task.py --participant test --iti-min 100 --iti-max 200`
-2. Task starts normally
-3. Crashes during first trial with TypeError
+1. Run: `python nback_task.py --participant test --kb-backend ptb`
+2. Task window appears briefly then closes.
+3. An error related to `psychtoolbox` or `permissions` is shown in the terminal.
 
 **Error Message**:
 ```

@@ -55,7 +55,7 @@ The following parameters are saved in the JSON metadata file accompanying each C
 | `stimulus`          | Letter shown                                  | string  | `A-Z` excluding I/O/Q by default     |
 | `is_target`         | Target trial flag                             | int     | `1` = target, `0` = non-target       |
 | `lure_type`         | Lure category                                 | string  | `"none"`, `"n-1"`, `"n+1"`           |
-| `iti_ms`            | Planned inter-trial interval                  | int     | milliseconds                         |
+| `iti_ms`            | Planned remainder of the constant SOA after the 500 ms stimulus | int     | milliseconds                         |
 | `stim_onset_time`   | Stimulus onset (returned by window.flip)      | float   | seconds (high-resolution timestamp)  |
 | `response_key`      | Key pressed                                   | string  | key name (e.g., `"space"`) or empty  |
 | `rt_ms`             | Reaction time from stimulus onset             | float   | milliseconds; empty if no response   |
@@ -97,20 +97,20 @@ When no response is recorded:
 
 - `response_key = ""` (empty string)
 - `rt_ms = ""` (empty string)
-- `correct = 0`
+- `correct`: `0` if target (miss), `1` if non-target (correct rejection)
 - `marker_code_resp = ""` (empty string)
 
 ## Example row
 
 ```csv
 participant_id,session_timestamp,block_idx,trial_idx,n_back,stimulus,is_target,lure_type,iti_ms,stim_onset_time,response_key,rt_ms,correct,marker_code_stim,marker_code_resp
-P001,20250811_113207,1,37,2,K,1,none,712,45.382,space,421.7,1,41,50
+P001,20250811_113207,1,37,2,K,1,none,2000,45.382,space,421.7,1,41,50
 ```
 
 ## Versioning
 
 - **Version**: 1.1.0
-- **Last updated**: 2025-08-20
+- **Last updated**: 2026-01-09
 - **Maintainer**: N-back Task Contributors
 
 **Changelog**:
