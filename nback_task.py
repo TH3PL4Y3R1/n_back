@@ -5,14 +5,14 @@ PsychoPy N-back task with optional (commented) marker plumbing for EEG/ECG integ
 - Runs out of the box with markers disabled (no-op).
 - Toggle ENABLE_MARKERS to True and follow commented examples to integrate with LSL/Serial/Parallel.
 
-Data: Writes trial-wise CSV to ./data/nback_{participantID}_{YYYYMMDD_HHMMSS}.csv
+Data: Writes trial-wise rows to ./data/nback.db (SQLite, shared across sessions).
 """
 
 from __future__ import annotations
 
 import os
 import sys
-import csv
+import sqlite3
 import random
 import string
 import argparse
@@ -43,6 +43,13 @@ from nback.markers import (
 from nback.sequences import (
     TrialPlan,
     generate_sequence,
+)
+from nback.db import (
+    DB_FILENAME,
+    init_db,
+    insert_session,
+    insert_trials,
+    delete_session,
 )
 
 """Main N-back task entry point.
@@ -197,7 +204,7 @@ def show_consent(win: visual.Window, text_stim: Optional[visual.TextStim] = None
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win, abort=True)
+            graceful_quit(win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -230,7 +237,7 @@ def show_instructions(win: visual.Window, n_back: int) -> None:
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win, abort=True)
+            graceful_quit(win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -322,7 +329,7 @@ def show_practice_headsup(win: visual.Window) -> None:
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win, abort=True)
+            graceful_quit(win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -340,7 +347,7 @@ def show_break(win: visual.Window, block_idx: int, acc: float, mean_rt: Optional
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win, abort=True)
+            graceful_quit(win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -407,7 +414,7 @@ def run_practice(win: visual.Window, n_back: int, practice_trials: int) -> Tuple
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win, abort=True)
+            graceful_quit(win, abort=True)
         if KEY_PROCEED in keys:
             break
     return acc, mean_rt
@@ -423,7 +430,7 @@ def show_task_headsup(win: visual.Window, n_back: int) -> None:
     while True:
         keys = event.waitKeys(keyList=[KEY_PROCEED, KEY_QUIT])
         if KEY_QUIT in keys:
-            graceful_quit(None, None, [], win, abort=True)
+            graceful_quit(win, abort=True)
         if KEY_PROCEED in keys:
             break
 
@@ -529,7 +536,7 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
                     k = keys[0]
                     name = k.name
                     if name == KEY_QUIT:
-                        graceful_quit(None, None, rows_out if rows_out is not None else [], win, abort=True)
+                        graceful_quit(win, abort=True)
                     got_response = True
                     resp_key = name
                     rt_ms = (k.rt or 0.0) * 1000.0
@@ -545,7 +552,7 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
                 if keys and not got_response:
                     for k, t in keys:
                         if k == KEY_QUIT:
-                            graceful_quit(None, None, rows_out if rows_out is not None else [], win, abort=True)
+                            graceful_quit(win, abort=True)
                         if k:
                             got_response = True
                             resp_key = k
@@ -614,46 +621,34 @@ def run_block(win: visual.Window, block_idx: int, n_back: int, plans: List[Trial
 
 CURRENT_PARTICIPANT = ""
 SESSION_TS = ""
-CSV_PATH = ""
+DB_PATH = ""
+SESSION_ID = 0
+DB_CONN: Optional[sqlite3.Connection] = None
 ABORT_WITHOUT_SAVE = False
-META_PATH = ""
 
 
-def graceful_quit(writer: Optional[csv.DictWriter], f: Optional[object], rows: List[Dict], win: Optional[visual.Window], abort: bool = False) -> None:
-    """Close the task cleanly, saving rows unless aborting.
+def graceful_quit(win: Optional[visual.Window], abort: bool = False) -> None:
+    """Close the task cleanly, rolling back the session on abort.
 
-    If abort is True (e.g., ESC pressed), delete any partially written files and
-    suppress saving remaining rows. Always attempts to close the PsychoPy window.
+    If abort is True (ESC pressed), deletes the current session and all its
+    trials from the database (ON DELETE CASCADE).  Always closes the window.
     """
-    global ABORT_WITHOUT_SAVE
+    global ABORT_WITHOUT_SAVE, DB_CONN
     ABORT_WITHOUT_SAVE = ABORT_WITHOUT_SAVE or abort
 
-    # Only save when not aborting
-    if not ABORT_WITHOUT_SAVE:
-        try:
-            if writer is not None and f is not None and rows:
-                writer.writerows(rows)
-                f.flush()
-        except Exception:
-            pass
-    # Close file handle if present
-    try:
-        if f is not None:
-            f.close()
-    except Exception:
-        pass
-    # If aborting, remove CSV/metadata files if they exist
     if ABORT_WITHOUT_SAVE:
         try:
-            if CSV_PATH and os.path.exists(CSV_PATH):
-                os.remove(CSV_PATH)
+            if DB_CONN is not None and SESSION_ID:
+                delete_session(DB_CONN, SESSION_ID)
+                DB_CONN.commit()
         except Exception:
             pass
-        try:
-            if META_PATH and os.path.exists(META_PATH):
-                os.remove(META_PATH)
-        except Exception:
-            pass
+    try:
+        if DB_CONN is not None:
+            DB_CONN.close()
+            DB_CONN = None
+    except Exception:
+        pass
     # Close window
     try:
         if win is not None:
@@ -675,7 +670,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     - Consent → Instructions → Practice (optional) → Heads-up → Blocks → Thanks → Save/Exit.
     - Writes per-trial CSV and a metadata JSON sidecar.
     """
-    global CURRENT_PARTICIPANT, SESSION_TS, CSV_PATH, META_PATH
+    global CURRENT_PARTICIPANT, SESSION_TS, DB_PATH, SESSION_ID, DB_CONN
 
     parser = argparse.ArgumentParser(description="PsychoPy N-back Task")
     parser.add_argument("--participant", "-p", default="anon", help="Participant ID")
@@ -764,9 +759,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("Note: psychtoolbox keyboard backend unavailable; falling back to 'event' backend.")
 
     make_data_dir(DATA_DIR)
-    csv_name = f"nback_{CURRENT_PARTICIPANT}_{SESSION_TS}.csv"
-    CSV_PATH = os.path.join(DATA_DIR, csv_name)
-    META_PATH = os.path.join(DATA_DIR, f"nback_{CURRENT_PARTICIPANT}_{SESSION_TS}.meta.json")
+    DB_PATH = os.path.join(DATA_DIR, DB_FILENAME)
 
     # Configure window
     fullscr = not bool(args.windowed)
@@ -796,58 +789,44 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         print("Warning: Could not detect display refresh rate; proceeding without it.")
 
-    # Consent -> Instructions -> Practice heads up
+    # Consent -> Instructions -> (DB opened after) -> Practice heads up
     show_consent(win)
     show_instructions(win, n_back)
     show_practice_headsup(win)
 
-    # Prepare CSV
-    fieldnames = [
-        "participant_id", "session_timestamp", "block_idx", "trial_idx",
-        "n_back", "stimulus", "is_target", "lure_type", "iti_ms",
-        "stim_onset_time", "response_key", "rt_ms", "correct",
-        "marker_code_stim", "marker_code_resp",
-    ]
-
-    f = open(CSV_PATH, "w", newline="", encoding="utf-8")
-    writer = csv.DictWriter(f, fieldnames=fieldnames)
-    writer.writeheader()
-
-    # Write sidecar metadata JSON for reproducibility (includes display refresh and fullscreen)
+    # Open database and record session metadata
+    meta = {
+        "participant_id": CURRENT_PARTICIPANT,
+        "session_timestamp": SESSION_TS,
+        "n_back": n_back,
+        "blocks": n_blocks,
+        "trials_per_block": trials_per_block,
+        "practice_trials": int(args.practice_trials),
+        "practice_target_rate": PRACTICE_TARGET_RATE,
+        "practice_has_lures": PRACTICE_HAS_LURES,
+        "target_rate": CFG_TARGET_RATE,
+        "lure_nminus1_rate": CFG_LURE_NM1,
+        "lure_nplus1_rate": CFG_LURE_NP1,
+        "max_consec_targets": CFG_MAX_CONSEC_TARGETS,
+        # constant SOA model; per-trial iti_ms equals (soa_ms - stim_dur_ms)
+        "seed": args.seed,
+        "letters": LETTERS,
+        "psychopy_version": None,
+        "display_refresh_hz": refresh_hz,
+        "window_fullscreen": bool(fullscr),
+        "screen_index": args.screen,
+        "soa_ms": CFG_SOA_MS,
+        "fixed_iti_ms": CFG_FIXED_ITI_MS,
+        "kb_backend": "ptb" if (CFG_USE_HW_KB and _HAVE_HW_KB) else "event",
+    }
     try:
-        meta = {
-            "participant_id": CURRENT_PARTICIPANT,
-            "session_timestamp": SESSION_TS,
-            "n_back": n_back,
-            "blocks": n_blocks,
-            "trials_per_block": trials_per_block,
-            "practice_trials": int(args.practice_trials),
-            "practice_target_rate": PRACTICE_TARGET_RATE,
-            "practice_has_lures": PRACTICE_HAS_LURES,
-            "target_rate": CFG_TARGET_RATE,
-            "lure_nminus1_rate": CFG_LURE_NM1,
-            "lure_nplus1_rate": CFG_LURE_NP1,
-            "max_consec_targets": CFG_MAX_CONSEC_TARGETS,
-            # constant SOA model; per-trial iti_ms equals (soa_ms - stim_dur_ms)
-            "seed": args.seed,
-            "letters": LETTERS,
-            "psychopy_version": None,
-            "display_refresh_hz": refresh_hz,
-            "window_fullscreen": bool(fullscr),
-            "screen_index": args.screen,
-            "soa_ms": CFG_SOA_MS,
-            "fixed_iti_ms": CFG_FIXED_ITI_MS,
-            "kb_backend": "ptb" if (CFG_USE_HW_KB and _HAVE_HW_KB) else "event",
-        }
-        try:
-            import psychopy
-            meta["psychopy_version"] = getattr(psychopy, "__version__", None)
-        except Exception:
-            pass
-        with open(META_PATH, "w", encoding="utf-8") as mf:
-            json.dump(meta, mf, indent=2)
+        import psychopy
+        meta["psychopy_version"] = getattr(psychopy, "__version__", None)
     except Exception:
         pass
+    conn = init_db(DB_PATH)
+    DB_CONN = conn
+    SESSION_ID = insert_session(conn, meta)
 
     all_rows: List[Dict] = []
     overall_accs: List[int] = []
@@ -889,8 +868,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # Persist rows periodically (per block)
         if all_rows:
-            writer.writerows(all_rows)
-            f.flush()
+            insert_trials(conn, SESSION_ID, all_rows)
+            conn.commit()
             overall_accs.extend(block_accs)
             overall_rts.extend([rt for rt in block_rts if rt is not None])
             all_rows.clear()
@@ -905,12 +884,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     show_save_and_exit_prompt(win)
 
     # Final flush and close
-    try:
-        if all_rows:
-            writer.writerows(all_rows)
-        f.flush()
-    finally:
-        f.close()
+    if all_rows:
+        insert_trials(conn, SESSION_ID, all_rows)
+        conn.commit()
 
     try:
         win.close()
@@ -927,28 +903,29 @@ def main(argv: Optional[List[str]] = None) -> int:
     nontarget_total = 0
 
     try:
-        with open(CSV_PATH, "r", encoding="utf-8") as rf:
-            r = csv.DictReader(rf)
-            for row in r:
-                itarget = int(row["is_target"]) if row["is_target"] != "" else 0
-                corr = int(row["correct"]) if row["correct"] != "" else 0
-                if itarget == 1:
-                    target_total += 1
-                    if corr == 1:
-                        target_correct += 1
-                else:
-                    nontarget_total += 1
-                    if corr == 1:
-                        nontarget_correct += 1
+        cur = conn.execute(
+            "SELECT is_target, SUM(correct), COUNT(*) FROM trials "
+            "WHERE session_id=? GROUP BY is_target",
+            (SESSION_ID,),
+        )
+        for is_target, n_correct, n_total in cur.fetchall():
+            if is_target == 1:
+                target_correct = n_correct or 0
+                target_total = n_total or 0
+            else:
+                nontarget_correct = n_correct or 0
+                nontarget_total = n_total or 0
     except Exception:
         pass
+    finally:
+        conn.close()
 
     target_acc = (target_correct / target_total) if target_total else 0.0
     nontarget_acc = (nontarget_correct / nontarget_total) if nontarget_total else 0.0
     mean_rt = (sum(overall_rts) / len(overall_rts)) if overall_rts else None
 
     print("\n===== Session Summary =====")
-    print(f"File: {CSV_PATH}")
+    print(f"Database: {DB_PATH}  (session_id={SESSION_ID})")
     print(f"Trials: {total_trials}")
     print(f"Overall accuracy: {overall_acc*100:.1f}%")
     print(f"Target accuracy: {target_acc*100:.1f}% (n={target_total})")
@@ -966,9 +943,11 @@ if __name__ == "__main__":
     except SystemExit as e:
         raise e
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         # Ensure graceful close if window exists
         try:
             core.quit()
         except Exception:
             pass
-        raise
+        sys.exit(1)

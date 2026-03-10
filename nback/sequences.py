@@ -139,28 +139,35 @@ def _sample_target_indices(n_back: int, n_trials: int, desired: int, max_consec_
     for _ in range(attempts):
         random.shuffle(positions)
         chosen: List[int] = []
+        chosen_set: set = set()
         for i in positions:
             if len(chosen) >= desired:
                 break
-            # Consecutive target constraint
+            # Consecutive target constraint — use a set for O(1) bidirectional checks
+            # so the result is correct regardless of shuffled processing order.
             if max_consec_targets <= 0:
-                allow = False
-            else:
-                if max_consec_targets == 1 and chosen and i - chosen[-1] == 1:
+                continue
+            if max_consec_targets == 1:
+                if (i - 1) in chosen_set or (i + 1) in chosen_set:
                     continue
-                # General case: ensure last run length would not exceed max
-                if chosen:
-                    run = 1
-                    j = len(chosen) - 1
-                    while j >= 0 and chosen[j] == (i - (len(chosen) - j)):
-                        run += 1
-                        j -= 1
-                    if run > max_consec_targets:
-                        continue
+            else:
+                # Count run length: how many consecutive targets would surround i
+                run = 1
+                j = i - 1
+                while j in chosen_set:
+                    run += 1
+                    j -= 1
+                j = i + 1
+                while j in chosen_set:
+                    run += 1
+                    j += 1
+                if run > max_consec_targets:
+                    continue
             # Break chains: do not select i if (i - n_back) already a target
-            if (i - n_back) in chosen:
+            if (i - n_back) in chosen_set:
                 continue
             chosen.append(i)
+            chosen_set.add(i)
         if len(chosen) == desired:
             return sorted(chosen)
     return None
@@ -290,16 +297,9 @@ def generate_sequence(n_back: int, n_trials: int, *,
             ))
         return plans
 
-    return generate_sequence(
-        n_back,
-        n_trials,
-        target_rate=target_rate,
-        lure_n_minus_1_rate=lure_n_minus_1_rate,
-        lure_n_plus_1_rate=lure_n_plus_1_rate,
-        max_consec_targets=max_consec_targets,
-        max_identical_run=max_identical_run,
-        fixed_iti_ms=fixed_iti_ms,
-        max_attempts=1,
-        soft_balance_initial=False,
-        include_lures=include_lures,
+    raise RuntimeError(
+        f"generate_sequence: could not produce a valid sequence after {max_attempts} attempts "
+        f"(n_back={n_back}, n_trials={n_trials}, target_rate={target_rate}, "
+        f"max_consec_targets={max_consec_targets}, include_lures={include_lures}). "
+        "Try reducing target_rate, increasing n_trials, or relaxing max_consec_targets."
     )

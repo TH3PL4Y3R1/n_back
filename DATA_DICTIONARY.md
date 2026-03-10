@@ -8,21 +8,31 @@ For additional information, see:
 
 - [README.md](README.md) - General usage and setup
 
-## File naming and location
+## Storage format
 
-- **Folder**: `./data/`
-- **Filename template**: `nback_{participantID}_{YYYYMMDD_HHMMSS}.csv`
-- **Metadata sidecar**: `nback_{participantID}_{YYYYMMDD_HHMMSS}.meta.json`
-- **One file per session**: If multiple sessions occur in the same second, the timestamp is identical; the participant or later start time will differ. Keeping sessions separate is recommended.
+Data is stored in a single **SQLite** database at `./data/nback.db`, shared across all participants and sessions.
 
-## Task parameters captured in each run (metadata sidecar .meta.json)
+Two tables:
+- **`sessions`** — one row per task run (replaces the old `.meta.json` sidecar)
+- **`trials`** — one row per trial (replaces the old per-session `.csv` files)
+
+`trials.session_id` references `sessions.session_id` with `ON DELETE CASCADE`: aborting with ESC deletes the session row and all its trials atomically.
+
+Quick inspection:
+```bash
+sqlite3 data/nback.db "SELECT session_id, participant_id, session_ts, n_back FROM sessions;"
+sqlite3 data/nback.db "SELECT COUNT(*) FROM trials WHERE session_id=1;"
+```
+
+## Task parameters captured in each run (`sessions` table)
 
 The following parameters are saved in the JSON metadata file accompanying each CSV data file:
 
-| Parameter               | Type             | Description                                                            |
+| Column                  | Type             | Description                                                            |
 |-------------------------|------------------|------------------------------------------------------------------------|
-| `participant_id`        | string           | Participant identifier                                                 |
-| `session_timestamp`     | string           | Session start time (`YYYYMMDD_HHMMSS`)                                 |
+| `session_id`            | integer PK       | Auto-increment primary key                                             |
+| `participant_id`        | text             | Participant identifier                                                 |
+| `session_ts`            | text             | Session start time (`YYYYMMDD_HHMMSS`)                                 |
 | `n_back`                | int              | N level (e.g., 1, 2, 3)                                                |
 | `blocks`                | int              | Number of blocks in main task                                          |
 | `trials_per_block`      | int              | Trials per block                                                       |
@@ -41,14 +51,17 @@ The following parameters are saved in the JSON metadata file accompanying each C
 | `screen_index`          | int or null      | Display index when multiple monitors are present (0 = primary)         |
 | `soa_ms`                | int              | Constant stimulus onset asynchrony in milliseconds (default 2500)      |
 | `fixed_iti_ms`          | int              | Derived ITI used, computed as `soa_ms - stim_dur_ms` (default 2000)    |
-| `kb_backend`            | string           | Keyboard backend: `event` (default) or `ptb`                           |
+| `kb_backend`            | text             | Keyboard backend: `event` (default) or `ptb`                           |
+| `created_at`            | text             | Row insertion time (`datetime('now')` in UTC)                          |
 
-## Trial-level columns
+## Trial-level columns (`trials` table)
 
 | Column name         | Description                                   | Type    | Values                               |
 |---------------------|-----------------------------------------------|---------|--------------------------------------|
-| `participant_id`    | Participant code                              | string  | alphanumeric                         |
-| `session_timestamp` | Session start time (file timestamp)           | string  | `YYYYMMDD_HHMMSS`                    |
+| `id`                | Auto-increment primary key                    | integer |                                      |
+| `session_id`        | Foreign key → `sessions.session_id`           | integer |                                      |
+| `participant_id`    | Participant code                              | text    | alphanumeric                         |
+| `session_ts`        | Session start time (matches sessions table)   | text    | `YYYYMMDD_HHMMSS`                    |
 | `block_idx`         | Block index (1-based)                         | int     | `1..blocks`                          |
 | `trial_idx`         | Trial index within block (1-based)            | int     | `1..trials_per_block`                |
 | `n_back`            | N level for block                             | int     | `1`, `2`, or `3`                     |
