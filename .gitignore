@@ -28,6 +28,7 @@ Thumbs.db
 data/*.csv
 data/*.meta.json
 data/*.tsv
+data/*.db
 logs/
 
 # PsychoPy user files (if generated locally)
